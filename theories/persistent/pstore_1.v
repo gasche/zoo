@@ -711,7 +711,7 @@ Section pstore_G.
      (see [extract_unaliased]), and a DAG with unaliased guarantees unicity of paths
      (see [acyclic_unaliased_impl_uniq_path] ) *)
 
-  #[local] Definition snapshosts_model (t0:location) (M:map_model) : iProp Σ :=
+  #[local] Definition snapshots_model (t0:location) (M:map_model) : iProp Σ :=
     ∃ (γ:gname) (C:gset (location * gmap location val)), (* the model of snapshots *)
       ⌜snap_inv M C⌝ ∗ meta t0 nroot γ ∗ pstore_map_auth γ C.
 
@@ -723,7 +723,7 @@ Section pstore_G.
     ⌜t=#t0 /\ store_inv M g r σ σ0 /\ coherent M σ0 g /\ rooted_dag g r⌝ ∗
     t0 ↦ #r ∗
     r ↦ §Root ∗
-    snapshosts_model t0 M ∗
+    snapshots_model t0 M ∗
     ([∗ map] l ↦ v ∈ σ0, l ↦ v) ∗
     ([∗ set] x ∈ g, let '(r,(l,v),r') := x in r ↦ ’Diff{ #(l : location), v, #(r' : location) }) .
 
@@ -1611,7 +1611,7 @@ Section pstore_G.
 
   Lemma use_snapshots_model γ (t0:location) M r σ :
     meta t0 nroot γ -∗
-    snapshosts_model t0 M -∗
+    snapshots_model t0 M -∗
     pstore_map_elem γ r σ -∗
     ⌜exists σ1, M !! r = Some σ1 /\ σ ⊆ σ1⌝.
   Proof.
