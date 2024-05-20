@@ -21,6 +21,11 @@ Implicit Types l : location.
 Implicit Types v t s : val.
 Implicit Types σ : gmap location val.
 
+#[local] Notation "'sref_value'" := (
+  in_type "sref" 0
+)(in custom zoo_field
+).
+
 #[local] Notation "'snap_store'" := (
   in_type "snap" 0
 )(in custom zoo_proj
@@ -47,18 +52,18 @@ Definition pstore_create : val :=
     ref (ref §Root).
 
 Definition pstore_ref : val :=
-  λ: "v",
-    ref "v".
+  λ: "t" "v",
+    { "v" }.
 
 Definition pstore_get : val :=
   λ: "t" "r",
-    !"r".
+    "r".{sref_value}.
 
 Definition pstore_set : val :=
   λ: "t" "r" "v",
     let: "root" := ref §Root in
-    !"t" <- ‘Diff{ "r", !"r", "root" } ;;
-    "r" <- "v" ;;
+    !"t" <- ‘Diff{ "r", "r".{sref_value}, "root" } ;;
+    "r" <-{sref_value} "v" ;;
     "t" <- "root".
 
 Definition pstore_capture : val :=
@@ -84,8 +89,8 @@ Definition pstore_revert : val :=
             Fail
         | Diff "r" "v" "node_" =>
             assert ("node_" = "node") ;;
-            "node" <- ‘Diff{ "r", !"r", "node'" } ;;
-            "r" <- "v" ;;
+            "node" <- ‘Diff{ "r", "r".{sref_value}, "node'" } ;;
+            "r" <-{sref_value} "v" ;;
             "pstore_revert" "node'" "seg"
         end
     end.
@@ -724,7 +729,7 @@ Section pstore_G.
     t0 ↦ #r ∗
     r ↦ §Root ∗
     snapshots_model t0 M ∗
-    ([∗ map] l ↦ v ∈ σ0, l ↦ v) ∗
+    ([∗ map] l ↦ v ∈ σ0, l.[sref_value] ↦ v) ∗
     ([∗ set] x ∈ g, let '(r,(l,v),r') := x in r ↦ ’Diff{ #(l : location), v, #(r' : location) }) .
 
   Definition open_inv : string :=
@@ -791,7 +796,7 @@ Section pstore_G.
     {{{
       pstore t σ
     }}}
-      pstore_ref v
+      pstore_ref t v
     {{{ l,
       RET #l;
       ⌜l ∉ dom σ⌝ ∗
@@ -800,14 +805,17 @@ Section pstore_G.
   Proof.
     iIntros (ϕ) open_inv. iIntros "HΦ".
 
-    wp_rec. wp_alloc l as "Hl".
+    wp_rec. wp_record l as "( Hl & _ )".
+    
     iApply "HΦ".
 
     iAssert ⌜σ0 !! l = None⌝%I as %Hl0.
-    { rewrite -not_elem_of_dom. iIntros (Hl).
-      apply elem_of_dom in Hl. destruct Hl.
-      iDestruct (big_sepM_lookup with "Hσ0") as "Hl_"; first done.
-      iDestruct (pointsto_ne with "Hl Hl_") as %?. done. }
+    { rewrite -not_elem_of_dom. iIntros "%Hldom".
+      (* apply elem_of_dom in Hldom. destruct Hldom. *)
+      iDestruct (big_sepM_lookup with "Hσ0") as "( Hl_ & Hfoo & _ )".
+      { apply lookup_lookup_total_dom. exact Hldom. }
+      iDestruct (pointsto_ne with "Hl Hl_") as %?. done.
+    }
     assert (σ !! l = None).
     { eapply not_elem_of_dom. apply not_elem_of_dom in Hl0.  destruct Hinv as [_ X].
       apply incl_dom_incl in X. set_solver. }
@@ -865,11 +873,14 @@ Section pstore_G.
     iIntros (Hl ϕ) open_inv. iIntros "HΦ".
     wp_rec. iStep 4. iModIntro.
 
-    iDestruct (big_sepM_lookup_acc _ _ l v with "[$]") as "(?&Hσ0)".
+    iDestruct (big_sepM_lookup_acc _ _ l v with "Hσ0") as "(Hl & Hclose)".
     { destruct Hinv as [_ Hincl _ _].
       specialize (Hincl l). rewrite Hl in Hincl. destruct (σ0!!l); naive_solver. }
 
-    iStep 8. iFrame. iSteps.
+    wp_load.
+    iStep 4.
+    iFrame.
+    iApply "Hclose"; done.
   Qed.
 
   Lemma pstore_set_spec t σ l v :
@@ -892,7 +903,7 @@ Section pstore_G.
       apply incl_dom_incl in Hincl.
       set_solver. }
 
-    iDestruct (big_sepM_insert_acc with "Hσ0") as "(?&Hσ0)". done.
+    iDestruct (big_sepM_insert_acc with "Hσ0") as "( Hl & Hσ0 )"; first done.
     wp_load. wp_load. wp_store. iStep 4. iModIntro.
     wp_store. wp_store. iApply "HΦ".
 
@@ -1093,7 +1104,7 @@ Section pstore_G.
     path g r xs r' ->
     {{{
       r' ↦ w ∗
-      ([∗ map] l0↦v0 ∈ σ, l0 ↦ v0) ∗
+      ([∗ map] l0↦v0 ∈ σ, l0.[sref_value] ↦ v0) ∗
       ([∗ set] '(r, (l, v), r') ∈ g1, r ↦ ’Diff{ #(l : location), v, #(r' : location) }) ∗
       ([∗ set] '(r, (l, v), r') ∈ g2, r ↦ ’Diff{ #(l : location), v, #(r' : location) })
     }}}
@@ -1104,7 +1115,7 @@ Section pstore_G.
       ⌜undo xs ys σ⌝ ∗
       r ↦ §Root ∗
       ([∗ set] '(r, (l, v), r') ∈ (g1 ∪ list_to_set ys), r ↦ ’Diff{ #(l : location), v, #(r' : location) }) ∗
-      ([∗ map] l0↦v0 ∈ (apply_diffl (proj2 <$> xs) σ), l0 ↦ v0)
+      ([∗ map] l0↦v0 ∈ (apply_diffl (proj2 <$> xs) σ), l0.[sref_value] ↦ v0)
     }}}.
   Proof.
     iIntros (-> Hlocs Hg Hacy Hsub Hpath Φ) "(Hr'&Hσ&Hg1&Hg2) HΦ".
@@ -1135,7 +1146,8 @@ Section pstore_G.
       wp_smart_apply assert_spec. rewrite bool_decide_eq_true_2 //.
       iStep 4. iModIntro.
 
-      iDestruct (big_sepM_insert_acc with "Hσ") as "(?&Hσ)". done.
+      iDestruct (big_sepM_insert_acc with "Hσ") as "(Hl & Hσ)"; first done.
+
       wp_load. wp_store. wp_store. iStep 4. iModIntro.
 
       iSpecialize ("Hσ" with "[$]").
@@ -1167,7 +1179,7 @@ Section pstore_G.
     path g r xs r' ->
     {{{
       r' ↦ w ∗
-      ([∗ map] l0↦v0 ∈ σ, l0 ↦ v0) ∗
+      ([∗ map] l0↦v0 ∈ σ, l0.[sref_value] ↦ v0) ∗
       ([∗ set] '(r, (l, v), r') ∈ g, r ↦ ’Diff{ #(l : location), v, #(r' : location) })
     }}}
       pstore_revert #r' t
@@ -1177,7 +1189,7 @@ Section pstore_G.
       ⌜undo xs ys σ⌝ ∗
       r ↦ §Root ∗
       ([∗ set] '(r, (l, v), r') ∈ (list_to_set ys), r ↦ ’Diff{ #(l : location), v, #(r' : location) }) ∗
-      ([∗ map] l0↦v0 ∈ (apply_diffl (proj2 <$> xs) σ), l0 ↦ v0)
+      ([∗ map] l0↦v0 ∈ (apply_diffl (proj2 <$> xs) σ), l0.[sref_value] ↦ v0)
     }}}.
   Proof.
     iIntros (->???? Φ) "(?&?&?) HΦ".
@@ -1200,7 +1212,7 @@ Section pstore_G.
     path g r xs r' ->
     {{{
       r' ↦ §Root ∗
-      ([∗ map] l0↦v0 ∈ σ, l0 ↦ v0) ∗
+      ([∗ map] l0↦v0 ∈ σ, l0.[sref_value] ↦ v0) ∗
       ([∗ set] '(r, (l, v), r') ∈ g, r ↦ ’Diff{ #(l : location), v, #(r' : location) })
     }}}
       pstore_reroot #r
@@ -1210,7 +1222,7 @@ Section pstore_G.
       ⌜undo xs ys σ⌝ ∗
       r ↦ §Root ∗
       ([∗ set] '(r, (l, v), r') ∈ (list_to_set ys), r ↦ ’Diff{ #(l : location), v, #(r' : location) }) ∗
-      ([∗ map] l0↦v0 ∈ (apply_diffl (proj2 <$> xs) σ), l0 ↦ v0)
+      ([∗ map] l0↦v0 ∈ (apply_diffl (proj2 <$> xs) σ), l0.[sref_value] ↦ v0)
     }}}.
   Proof.
     iIntros (???? Φ) "(Hr'&Hσ&Hg) HΦ".
