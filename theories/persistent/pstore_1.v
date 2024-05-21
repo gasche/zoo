@@ -17,12 +17,20 @@ From zoo.persistent Require Export
 From zoo Require Import
   options.
 
+#[local] Definition generation :=
+  nat.
+
 Implicit Types l : location.
 Implicit Types v t s : val.
 Implicit Types σ : gmap location val.
+ Implicit Types gen : generation.
 
 #[local] Notation "'root'" := (
   in_type "t" 0
+)(in custom zoo_field
+).
+#[local] Notation "'gen'" := (
+  in_type "t" 1
 )(in custom zoo_field
 ).
 
@@ -37,6 +45,10 @@ Implicit Types σ : gmap location val.
 ).
 #[local] Notation "'snap_root'" := (
   in_type "snap" 1
+)(in custom zoo_proj
+).
+#[local] Notation "'snap_gen'" := (
+  in_type "snap" 2
 )(in custom zoo_proj
 ).
 
@@ -54,7 +66,7 @@ Implicit Types σ : gmap location val.
 
 Definition pstore_create : val :=
   λ: <>,
-    { ref §Root }.
+    { ref §Root; #0 }.
 
 Definition pstore_ref : val :=
   λ: "t" "v",
@@ -73,7 +85,9 @@ Definition pstore_set : val :=
 
 Definition pstore_capture : val :=
   λ: "t",
-    ("t", "t".{root}).
+    let: "g" := "t".{gen} in
+    "t" <-{gen} #1 + "g" ;;
+    ("t", "t".{root}, "g").
 
 Definition pstore_collect : val :=
   rec: "pstore_collect" "node" "acc" :=
@@ -115,6 +129,7 @@ Definition pstore_restore : val :=
           ()
       | Diff <> <> <> =>
           pstore_reroot "root" ;;
+          "t" <-{gen} #1 + "s".<snap_gen> ;;
           "t" <-{root} "root"
       end
     ).
@@ -726,22 +741,24 @@ Section pstore_G.
       ⌜snap_inv M C⌝ ∗ meta t0 nroot γ ∗ pstore_map_auth γ C.
 
   #[local] Definition pstore (t:val) (σ:gmap location val) : iProp Σ :=
-    ∃ (t0 r:location)
+    ∃ (t0 r:location) gen
       (σ0:gmap location val) (* the global map, with all the points-to ever allocated *)
       (g:graph_store) (* the global graph *)
       (M:map_model), (* the map model, associating to each node its model *)
     ⌜t=#t0 /\ store_inv M g r σ σ0 /\ coherent M σ0 g /\ rooted_dag g r⌝ ∗
     t0.[root] ↦ #r ∗
+    t0.[gen] ↦ #gen ∗
     r ↦ §Root ∗
     snapshots_model t0 M ∗
     ([∗ map] l ↦ v ∈ σ0, l.[sref_value] ↦ v) ∗
     ([∗ set] x ∈ g, let '(r,(l,v),r') := x in r ↦ ’Diff{ #(l : location), v, #(r' : location) }) .
 
   Definition open_inv : string :=
-    "[%t0 [%r [%σ0 [%g [%M ((->&%Hinv&%Hcoh&%Hgraph)&Ht0&Hr&HC&Hσ0&Hg)]]]]]".
+    "[%t0 [%r [%gen [%σ0 [%g [%M ((->&%Hinv&%Hcoh&%Hgraph)&Ht0&Hgen&Hr&HC&Hσ0&Hg)]]]]]]".
 
   Definition pstore_snapshot t s σ : iProp Σ :=
-    ∃ γ (t0:location) l, ⌜t=#t0 /\ s=ValTuple [t;#l]⌝ ∗ meta t0 nroot γ ∗ pstore_map_elem γ l σ.
+    ∃ γ (t0:location) l gen,
+      ⌜t=#t0 /\ s=ValTuple [t;#l;ValInt gen]⌝ ∗ meta t0 nroot γ ∗ pstore_map_elem γ l σ.
 
   #[global] Instance pstore_snapshot_timeless t s σ :
     Timeless (pstore_snapshot t s σ).
@@ -765,11 +782,11 @@ Section pstore_G.
     iIntros "%Φ _ HΦ".
     wp_rec.
     wp_alloc r as "Hroot".
-    wp_record t0 as "Hmeta" "(Ht0 & _)".
+    wp_record t0 as "Hmeta" "(Ht0 & Hgen & _)".
     iMod (mono_set_alloc ∅) as "[%γ ?]".
     iMod (meta_set _ _ _ nroot with "Hmeta") as "Hmeta". set_solver.
     iApply "HΦ". iModIntro.
-    iExists t0,r,∅,∅,{[r := ∅]}. iFrame.
+    iExists t0,r,0,∅,∅,{[r := ∅]}. iFrame.
     rewrite !big_sepM_empty big_sepS_empty !right_id.
     iSplitR.
     2:{ iExists γ,∅. iFrame. iPureIntro. intros ??. set_solver. }
@@ -816,7 +833,6 @@ Section pstore_G.
 
     iAssert ⌜σ0 !! l = None⌝%I as %Hl0.
     { rewrite -not_elem_of_dom. iIntros "%Hldom".
-      (* apply elem_of_dom in Hldom. destruct Hldom. *)
       iDestruct (big_sepM_lookup with "Hσ0") as "( Hl_ & Hfoo & _ )".
       { apply lookup_lookup_total_dom. exact Hldom. }
       iDestruct (pointsto_ne with "Hl Hl_") as %?. done.
@@ -827,7 +843,7 @@ Section pstore_G.
     iDestruct (pointsto_ne with "Hl Hr") as %Hlr.
 
     iModIntro. iSplitR. iPureIntro. by eapply not_elem_of_dom.
-    iExists t0,r, (<[l:=v]>σ0),g,((fun σ => <[l:=v]>σ)<$> M).
+    iExists t0,r,gen, (<[l:=v]>σ0),g,((fun σ => <[l:=v]>σ)<$> M).
 
     rewrite big_sepM_insert //. iFrame "∗".
     iSplitR "HC".
@@ -924,7 +940,7 @@ Section pstore_G.
       { destruct b. iDestruct (big_sepS_elem_of with "[$]") as "?". done.
         iDestruct (pointsto_ne r' r' with "[$][$]") as %?. congruence. } }
 
-    iModIntro. iExists t0,r',(<[l:=v]> σ0),({[(r,(l,w),r')]} ∪ g), (<[r':=<[l:=v]> σ0]>M).
+    iModIntro. iExists t0,r',gen,(<[l:=v]> σ0),({[(r,(l,w),r')]} ∪ g), (<[r':=<[l:=v]> σ0]>M).
     rewrite big_sepS_union.
     { apply disjoint_singleton_l. intros ?. apply Hr'.
       apply elem_of_vertices. eauto. }
@@ -984,16 +1000,19 @@ Section pstore_G.
     }}}.
   Proof.
     iIntros (Φ) open_inv. iIntros "HΦ".
-    wp_rec. wp_load. do 5 iStep.
+    wp_rec.
+    wp_load. wp_store. wp_load. iStep 5.
 
-    iDestruct "HC" as "[% [% (%Hsnap&#?&HC)]]".
+    iDestruct "HC" as "[% [% (%Hsnap & Hmeta & HC)]]".
     iMod (mono_set_insert' (r,σ) with "HC") as "(HC&Hsnap)".
     iModIntro.
-    iSplitR "Hsnap". 2:iSteps.
-    iExists _,_,_,_,_. iFrame.
-    iSplitR "HC".
-    { iPureIntro. split_and!; eauto. }
-    iExists _,_. iFrame "#∗". iPureIntro.
+    iSplit. 2:iSteps.
+    
+    iStep. iFrame.
+    iExists (1 + gen). iStep.
+    iExists γ, ({[(r, σ)]} ∪ C).
+
+    iSteps. iPureIntro.
     intros r' ? HC. rewrite elem_of_union elem_of_singleton in HC.
     destruct HC as [HC|HC]; last eauto.
     inversion HC. subst. destruct Hinv. eauto.
@@ -1653,7 +1672,7 @@ Section pstore_G.
     iIntros (Φ) "(HI&Hsnap) HΦ".
     iDestruct "HI" as open_inv.
 
-    iDestruct "Hsnap" as "[%γ [%t0' [%rs ((%Eq&->)&Hmeta'&Hsnap)]]]".
+    iDestruct "Hsnap" as "[%γ [%t0' [%rs [%snapgen ((%Eq&->)&Hmeta'&Hsnap)]]]]".
     inversion Eq. subst t0'. clear Eq.
 
     iDestruct (use_snapshots_model with "[$][$][$]") as %(σ1&HMrs&?).
@@ -1664,7 +1683,7 @@ Section pstore_G.
     destruct_decide (decide (rs=r)).
     { subst.
       wp_load. iStep 4. iModIntro.
-      iExists _,_,_,_,_. iFrame. iPureIntro. split_and!; eauto.
+      iExists _,_,_,_,_,_. iFrame. iPureIntro. split_and!; eauto.
       { destruct Hinv as [X1 X2 X3 X4]. constructor; eauto. naive_solver. } }
 
     assert (rs ∈ vertices g) as Hrs.
@@ -1692,7 +1711,7 @@ Section pstore_G.
 
     iIntros "[%ys (%Hundo&?&?&?)]".
     assert (mirror xs ys) as Hmirror by eauto using undo_mirror.
-    wp_store. iStep. iModIntro.
+    wp_store. wp_store. iStep. iModIntro.
     iDestruct (big_sepS_union_2 with "[$][$]") as "Hs".
 
     iDestruct (extract_unaliased with "Hs") as "%".
@@ -1704,7 +1723,8 @@ Section pstore_G.
     { iIntros (???). destruct a. iDestruct (big_sepS_elem_of with "Hs") as "?". done.
       iDestruct (pointsto_ne rs rs with "[$][$]") as "%". congruence. }
 
-    iExists _,_,_,_,M. iFrame.
+    iExists _,_,(1 + snapgen),_,_,M. iFrame.
+    iSplitR. 2:iSteps.
 
     assert (vertices (list_to_set ys ∪ g ∖ list_to_set xs) = vertices g) as Hvg.
     { apply mirror_vertices in Hmirror.
