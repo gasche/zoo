@@ -21,6 +21,11 @@ Implicit Types l : location.
 Implicit Types v t s : val.
 Implicit Types σ : gmap location val.
 
+#[local] Notation "'root'" := (
+  in_type "t" 0
+)(in custom zoo_field
+).
+
 #[local] Notation "'sref_value'" := (
   in_type "sref" 0
 )(in custom zoo_field
@@ -49,7 +54,7 @@ Implicit Types σ : gmap location val.
 
 Definition pstore_create : val :=
   λ: <>,
-    ref (ref §Root).
+    { ref §Root }.
 
 Definition pstore_ref : val :=
   λ: "t" "v",
@@ -62,13 +67,13 @@ Definition pstore_get : val :=
 Definition pstore_set : val :=
   λ: "t" "r" "v",
     let: "root" := ref §Root in
-    !"t" <- ‘Diff{ "r", "r".{sref_value}, "root" } ;;
+    "t".{root} <- ‘Diff{ "r", "r".{sref_value}, "root" } ;;
     "r" <-{sref_value} "v" ;;
-    "t" <- "root".
+    "t" <-{root} "root".
 
 Definition pstore_capture : val :=
   λ: "t",
-    ("t", !"t").
+    ("t", "t".{root}).
 
 Definition pstore_collect : val :=
   rec: "pstore_collect" "node" "acc" :=
@@ -110,7 +115,7 @@ Definition pstore_restore : val :=
           ()
       | Diff <> <> <> =>
           pstore_reroot "root" ;;
-          "t" <- "root"
+          "t" <-{root} "root"
       end
     ).
 
@@ -726,7 +731,7 @@ Section pstore_G.
       (g:graph_store) (* the global graph *)
       (M:map_model), (* the map model, associating to each node its model *)
     ⌜t=#t0 /\ store_inv M g r σ σ0 /\ coherent M σ0 g /\ rooted_dag g r⌝ ∗
-    t0 ↦ #r ∗
+    t0.[root] ↦ #r ∗
     r ↦ §Root ∗
     snapshots_model t0 M ∗
     ([∗ map] l ↦ v ∈ σ0, l.[sref_value] ↦ v) ∗
@@ -760,7 +765,7 @@ Section pstore_G.
     iIntros "%Φ _ HΦ".
     wp_rec.
     wp_alloc r as "Hroot".
-    wp_alloc t0 as "Hmeta" "Ht0".
+    wp_record t0 as "Hmeta" "(Ht0 & _)".
     iMod (mono_set_alloc ∅) as "[%γ ?]".
     iMod (meta_set _ _ _ nroot with "Hmeta") as "Hmeta". set_solver.
     iApply "HΦ". iModIntro.
@@ -1687,17 +1692,13 @@ Section pstore_G.
 
     iIntros "[%ys (%Hundo&?&?&?)]".
     assert (mirror xs ys) as Hmirror by eauto using undo_mirror.
-    iStep 8. do 2 iModIntro.
-    iApply "HΦ".
+    wp_store. iStep. iModIntro.
     iDestruct (big_sepS_union_2 with "[$][$]") as "Hs".
-
-    remember ((rs, (l, v), r') :: bs) as xs.
 
     iDestruct (extract_unaliased with "Hs") as "%".
 
     assert (({[(rs, (l, v), r')]} ∪ list_to_set bs) = (list_to_set xs : gset _)) as Hbs.
     { subst xs. reflexivity. }
-    rewrite Hbs. rewrite Hbs in H5.
 
     iAssert ⌜forall x y, (rs,x,y) ∉ (list_to_set ys ∪ g ∖ list_to_set xs)⌝%I as "%".
     { iIntros (???). destruct a. iDestruct (big_sepS_elem_of with "Hs") as "?". done.
@@ -1725,10 +1726,6 @@ Section pstore_G.
       { set_solver. }
       { intros. eapply undo_preserves_model; eauto. rewrite comm_L //. }
     } {
-      rewrite /apply_diffl.
-      replace (<[l:=v]> (foldr (λ '(l0, v0) σ2, <[l0:=v0]> σ2) σ0 (list_fmap (location * diff * location)%type diff proj2 bs))) with (apply_diffl (proj2 <$> xs) σ0).
-      2:{ subst xs. reflexivity. }
-
       destruct Hcoh as [X1 X2]. constructor.
       { intros ???. rewrite dom_apply_diffl. apply X1 in H8.
         eapply use_locations_of_edges_in in Hrs. 2:done.
