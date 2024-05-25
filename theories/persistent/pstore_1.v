@@ -736,7 +736,7 @@ Section pstore_G.
   Definition snap_inv M C :=
     forall l σ, (l,σ) ∈ C -> exists σ', M !! l = Some σ' /\ σ ⊆ σ'.
 
-  Definition captured l C :=
+  Definition captured C l :=
     exists σ, (l, σ) ∈ C.
 
   Definition no_succ g k :=
@@ -749,7 +749,7 @@ Section pstore_G.
     (* If a node is not captured, then:
        - if it is the current root, it has no children
        - otherwise it has at most one child *)
-    forall k, k ∈ dom M -> not (captured k C) ->
+    forall k, k ∈ dom M -> not (captured C k) ->
       ((k = r) -> no_succ g k)
       /\
       (at_most_one_child g k)
@@ -1111,7 +1111,7 @@ Section pstore_G.
     - (* topology_inv g M C' *)
       iPureIntro.
       intros l Hl_dom Hl_cap.
-      assert (not (captured l C)) as Hl_cap'
+      assert (not (captured C l)) as Hl_cap'
         by (unfold captured in *; set_solver).
       apply (Htopo l Hl_dom Hl_cap').
 
@@ -1848,12 +1848,12 @@ Section pstore_G.
     dom M = vertices g ∪ {[r]} ->
     topology_inv g M C r ->
     unaliased g ->
-    captured rs C ->
+    captured C rs ->
     path g rs xs r ->
     forall k1 d1 k d2 k2,
     edge (g ∖ list_to_set xs) k1 d1 k ->
     edge (list_to_set xs) k d2 k2 ->
-    not (not (captured k C))
+    not (not (captured C k))
   .
     intros Hdom Htopo Hunaliased Hcap Hpath k1 d1 k d2 k2 Hk1 Hk2 Hk_cap.
     { destruct (into_a_path g rs xs r Hunaliased Hpath k1 d1 k d2 k2) as [ Hend | Hmid ]; eauto.
@@ -1879,7 +1879,7 @@ Section pstore_G.
   Lemma undo_preserves_topo g M C (xs ys:list (location* (location*val)*location)) r rs :
     dom M = vertices g ∪ {[r]} ->
     unaliased g ->
-    captured rs C ->
+    captured C rs ->
     path g rs xs r ->
     mirror xs ys ->
     topology_inv g M C r ->
@@ -1911,7 +1911,7 @@ Section pstore_G.
     meta t0 nroot γ -∗
     snapshots t0 M C -∗
     pstore_map_elem γ r σ -∗
-    ⌜exists σ1, M !! r = Some σ1 /\ σ ⊆ σ1 /\ captured r C⌝.
+    ⌜exists σ1, M !! r = Some σ1 /\ σ ⊆ σ1 /\ captured C r⌝.
   Proof.
     iIntros "Hmeta [%γ' (%Hsnap&Hmeta'&HC)] Helem".
     iDestruct (meta_agree with "Hmeta' Hmeta") as "->".
