@@ -739,6 +739,30 @@ Section pstore_G.
   Definition captured C l :=
     exists σ, (l, σ) ∈ C.
 
+  (* TODO include in stdpp ?
+     https://gitlab.mpi-sws.org/iris/stdpp/-/issues/209 *)
+  Lemma Decision_transport : forall P Q, (P <-> Q) -> Decision P -> Decision Q.
+  Proof.
+    unfold Decision. tauto.
+  Qed.
+
+  #[global] Instance captured_decision C l :
+    Decision (captured C l).
+  Proof.
+    { apply Decision_transport with (set_Exists (fun '(k,_) => k = l) C).
+      - unfold captured.
+        unfold set_Exists.
+        { constructor.
+        - intros ((k, σ), (H, ->)). eauto.
+        - intros (σ, H).
+          exists (l, σ). eauto. }
+      - apply set_Exists_dec.
+        intros (l', σ).
+        unfold Decision.
+        destruct_decide (decide (l' = l)); auto.
+    }
+  Qed.
+
   Definition no_succ g k :=
     forall k', not (has_edge g k k').
 
