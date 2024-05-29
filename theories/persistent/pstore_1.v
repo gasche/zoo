@@ -277,6 +277,7 @@ Section graph.
   Lemma edge_of_union : forall g1 g2 x y,
       has_edge (g1 ∪ g2) x y <-> (has_edge g1 x y ∨ has_edge g2 x y).
   Proof.
+    TODO admit.
   Admitted.
 
   Definition graph_incl g1 g2 :=
