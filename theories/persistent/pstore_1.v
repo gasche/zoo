@@ -277,8 +277,8 @@ Section graph.
   Lemma edge_of_union : forall g1 g2 x y,
       has_edge (g1 ∪ g2) x y <-> (has_edge g1 x y ∨ has_edge g2 x y).
   Proof.
-    TODO admit.
-  Admitted.
+    rewrite /has_edge. set_solver.
+  Qed.
 
   Definition graph_incl g1 g2 :=
     forall x y, has_edge g1 x y -> has_edge g2 x y.
@@ -517,7 +517,7 @@ Section graph.
     induction 1.
     { naive_solver.  }
     right. destruct IHpath as [(->&->)|(bs'&b'&y&->&?&?)].
-    { exists nil. eexists _,_. split; first done. split. 
+    { exists nil. eexists _,_. split; first done. split.
       - eauto using path_nil.
       - naive_solver. }
     { exists ((a1, b, a2) :: bs'). eexists _,_. rewrite app_comm_cons //. split_and !; try done.
@@ -2353,9 +2353,9 @@ Section pstore_G.
       as (xs'm & sufm' & Dysm' & Mxs' & Msuf' & Psufm' & Pxs'm); eauto; [].
 
     (* A bunch of facts that help [set_solver] with the proofs below. *)
-    assert (list_to_set ys' ⊆ g1) by TODO admit.
-    assert (list_to_set xs' ⊆ g1) by TODO admit.
-    assert (list_to_set suf ⊆ g1) by TODO admit.
+    assert (list_to_set ys' ⊆ g1) by (eauto using path_all_in).
+    assert (list_to_set xs' ⊆ g1) by (eauto using path_all_in).
+    assert (list_to_set suf ⊆ g1) by (eauto using path_all_in).
 
     assert (xs' ## ys') by TODO admit.
     assert (xs' ## suf) by TODO admit.
