@@ -274,6 +274,40 @@ Section graph.
   Definition has_edge (g:graph A B) x y := exists c,
     (x,c,y) ∈ g.
 
+  Lemma edge_of_union : forall g1 g2 x y,
+      has_edge (g1 ∪ g2) x y <-> (has_edge g1 x y ∨ has_edge g2 x y).
+  Proof.
+  Admitted.
+
+  Definition graph_incl g1 g2 :=
+    forall x y, has_edge g1 x y -> has_edge g2 x y.
+
+  Definition graph_iso g1 g2 :=
+    graph_incl g1 g2 /\ graph_incl g2 g1.
+
+  (* TODO a 'proper' instance or something? *)
+  Lemma union_incl g1 g1' g2 g2' :
+    graph_incl g1 g1' -> graph_incl g2 g2' -> graph_incl (g1 ∪ g2) (g1' ∪ g2').
+  Proof.
+    intros H1 H2.
+    intros x y (diff & Hkl).
+    rewrite elem_of_union in Hkl.
+    assert (forall g g' x y diff, graph_incl g g' -> (x, diff, y) ∈ g -> has_edge g' x y) as Hglue.
+    {
+      intros g g' k' l' diff' Hincl Helem.
+      destruct Hincl with k' l'; unfold has_edge; eauto.
+    }
+    rewrite edge_of_union.
+    destruct Hkl as [ Hkl | Hkl ]; [ left | right ]; eapply Hglue; eauto.
+  Qed.
+
+  Lemma union_iso g1 g1' g2 g2' :
+    graph_iso g1 g1' -> graph_iso g2 g2' -> graph_iso (g1 ∪ g2) (g1' ∪ g2').
+  Proof.
+    intros (H1 & H1') (H2 & H2').
+    split; eapply union_incl; eauto.
+  Qed.
+
   Inductive path (g:graph A B) : A -> list (A*B*A) -> A -> Prop :=
   | path_nil : forall a, path g a [] a
   | path_cons : forall a1 b a2 bs a3,
@@ -605,8 +639,6 @@ Section graph.
       assumption.
   Qed.
 
-  (* reused from undo_app_inv below.
-     TODO see if it is possible to reuse mirror_app_inv inside undo_app_inv. *)
   Lemma mirror_app_inv (xs ys1 ys2 : list (A * B * A)) :
     mirror xs (ys1 ++ ys2) ->
     exists xs1 xs2,
@@ -624,6 +656,28 @@ Section graph.
       - eauto.
       - rewrite -assoc_L //.
       }
+  Qed.
+
+  Lemma mirror_mirror_incl xs xsm1 xsm2 :
+      mirror xsm1 xs ->
+      mirror xsm2 xs ->
+      graph_incl (list_to_set xsm1) (list_to_set xsm2).
+  Proof.
+    intros M1 M2.
+    assert (mirror xs xsm2) as M2symm by (eapply mirror_symm; eauto).
+    intros x y (diff & Hkl).
+    rewrite elem_of_list_to_set in Hkl.
+    destruct (mirror_mirrored_edges xsm1 xs x diff y) as (d1 & Hd1); eauto.
+    destruct (mirror_mirrored_edges xs xsm2 y d1 x) as (d2 & Hd2); eauto.
+    exists d2; rewrite elem_of_list_to_set; done.
+  Qed.
+
+  Lemma mirror_mirror xs xsm1 xsm2 :
+      mirror xsm1 xs ->
+      mirror xsm2 xs ->
+      graph_iso (list_to_set xsm1) (list_to_set xsm2).
+  Proof.
+    intros. split; eapply mirror_mirror_incl; eauto.
   Qed.
 
   Lemma path_middle (g:graph A B) x xs ys z :
@@ -654,6 +708,34 @@ Section graph.
       { eapply path_app; first done.
         apply path_cons; first set_solver. apply path_nil. }
       { rewrite app_length. simpl. lia. } }
+  Qed.
+
+  Lemma mirror_path_disjoint g na xs b xsm :
+    acyclic g ->
+    path g na xs b ->
+    mirror xs xsm ->
+    g ## list_to_set xsm.
+  Proof.
+    intros Hacyclic Pxs Mxs.
+    intros ((k, diff), l) Hklg1 Hklxsm.
+    rewrite elem_of_list_to_set in Hklxsm.
+    assert (exists diff', (l, diff', k) ∈ xs) as (diff' & Hlkxs).
+    { eapply mirror_mirrored_edges; eauto.
+      apply mirror_symm; eauto.
+    }
+    assert (path g k [(k, diff, l)] l) as Pkl.
+    { constructor; eauto. constructor. }
+    assert (path g l [(l, diff', k)] k) as Plk.
+    { apply path_weak with (list_to_set xs); eauto.
+    - { constructor; eauto.
+      - rewrite elem_of_list_to_set; eauto.
+      - constructor.
+      }
+    - eapply path_all_in.
+      apply Pxs.
+    }
+    discriminate (Hacyclic k ([(k, diff, l)] ++ [(l, diff', k)])); eauto.
+    { eapply path_app; eauto. }
   Qed.
 
   Definition pathlike (ys:list (A*B*A)) r :=
@@ -694,6 +776,109 @@ Section graph.
      - apply elem_of_vertices. eauto.
      - apply path_inv_r in H3. destruct H3 as [(->&->)|(?&?&?&->&?&?)].
        all:apply elem_of_vertices; eauto.
+  Qed.
+
+  (* 'undo_graph' is in fact a generic substitution operation on graphs *)
+  Definition undo_graph (g : graph A B) (xs ys : list (A * B * A)) : graph A B :=
+    list_to_set ys ∪ g ∖ list_to_set xs.
+
+  Lemma undo_path g r xs rs ys :
+    path g rs xs r ->
+    mirror xs ys ->
+    path (undo_graph g xs ys) r ys rs.
+  Proof.
+    intros Hxs Hxsys.
+    enough (path (list_to_set ys) r ys rs) as Pys.
+    { eapply path_weak.
+    - eapply Pys.
+    - unfold undo_graph; set_solver. }
+    eapply use_mirror; eauto.
+  Qed.
+
+  Lemma mirror_app_inv_in_graph g na ys1 nb ys2 nc ysm :
+    let ys := ys1 ++ ys2 in
+    let g' := undo_graph g ys ysm in
+    path g na ys1 nb ->
+    path g nb ys2 nc ->
+    mirror ysm ys ->
+    exists ys1m ys2m,
+      ysm = ys2m ++ ys1m /\
+      mirror ys1m ys1 /\
+      mirror ys2m ys2 /\
+      path g' nc ys2m nb /\
+      path g' nb ys1m na
+  .
+  Proof.
+    revert ysm ys2 na.
+    induction ys1; intros ysm ys2 na ys g' Pab Pbc Hmirror.
+    - exists nil, ysm.
+      { split_and!; eauto.
+        - rewrite app_nil_r; done.
+        - constructor; done.
+        - apply (undo_path g nc ys2 nb ysm); eauto; [].
+          apply mirror_symm; eauto.
+        - inversion Pab; subst; constructor.
+      }
+    - unfold ys in Hmirror.
+      rewrite -app_comm_cons in Hmirror.
+      inversion Hmirror; subst.
+      inversion Pab; subst.
+      destruct (IHys1 xs ys2 r) as (ys1m & ys2m & Hxs & Mys1 & Mys2 & Pcb & Pbr); eauto; [].
+      exists (ys1m ++ [(r, x, r')]), ys2m.
+      { split_and!; eauto.
+      - subst xs.
+        rewrite assoc.
+        done.
+      - constructor; done.
+      - inversion Pab; subst.
+        apply path_weak with (list_to_set ys2m); first last.
+        {
+          unfold g'; unfold undo_graph.
+          intros elem Helem.
+          repeat rewrite list_to_set_app.
+          repeat (apply elem_of_union; left); done.
+        }
+        apply path_restrict with (undo_graph g (ys1 ++ ys2) (ys2m ++ ys1m)); done.
+      - inversion Pab; subst.
+        { apply path_app with r.
+        - apply path_weak with (list_to_set ys1m); first last.
+          {
+            unfold g'; unfold undo_graph.
+            intros elem Helem.
+            repeat rewrite list_to_set_app.
+            do 2 (apply elem_of_union; left).
+            apply elem_of_union; right.
+            done.
+          }
+          apply path_restrict with
+            (undo_graph g (ys1 ++ ys2) (ys2m ++ ys1m)); done.
+        - constructor; [ | constructor; done ].
+          unfold g'.
+          unfold undo_graph.
+          set_solver.
+        }
+      }
+
+  Qed.
+
+  Lemma undo_iso g xs ys :
+    list_to_set xs ⊆ g ->
+    graph_iso (list_to_set xs) (list_to_set ys) -> graph_iso g (undo_graph g xs ys).
+  Proof.
+    intros Hincl Hiso.
+    set g' := list_to_set xs ∪ (g ∖ list_to_set xs).
+    assert (g = g') as Hg.
+    {
+      apply leibniz_equiv.
+      subst g'.
+      rewrite union_comm.
+      rewrite difference_union.
+      set_solver.
+    }
+    replace (graph_iso g) with (graph_iso g') by (rewrite Hg; eauto).
+    unfold g', undo_graph.
+    apply union_iso; eauto; [].
+    unfold graph_iso; unfold graph_incl; intuition.
   Qed.
 End graph.
 
@@ -864,8 +1049,6 @@ Section pstore_G.
     rewrite <- H in Hk.
     exact (Htop k Hk).
   Qed.
-
-  Definition undo_graph g xs ys := list_to_set ys ∪ g ∖ list_to_set xs.
 
   Definition history_inv g r h orig :=
     exists xs ys,
@@ -1664,6 +1847,27 @@ Section pstore_G.
       eapply Hacy in Hp2. congruence. }
   Qed.
 
+  Lemma path_use_diff_last_subseteq
+    g (a1 a2 : location) (ys1 ys2 xs : list (location * diff * location)) (r : location) :
+    acyclic g ->
+    unaliased g ->
+    path g a1 (ys1 ++ xs) r ->
+    path g a2 (ys2 ++ xs) r ->
+    diff_last ys1 ys2 ->
+    list_to_set ys2 ⊆ g ∖ list_to_set (ys1 ++ xs).
+  Proof.
+    intros.
+    apply subseteq_difference_r.
+    - intros el Hel1 Hel2.
+      rewrite elem_of_list_to_set in Hel1.
+      rewrite elem_of_list_to_set in Hel2.
+      eapply (path_use_diff_last g a1 a2); eauto.
+    -
+      destruct (path_middle g a2 ys2 xs r ltac:(subst; auto))
+        as (mid & Hmid1 & Hmid2).
+      eapply path_all_in; eauto.
+  Qed.
+
   Lemma diff_last_comm {A:Type} (l1 l2:list A) :
     diff_last l1 l2 <-> diff_last l2 l1.
   Proof.
@@ -2092,19 +2296,6 @@ Section pstore_G.
     }
   Qed.
 
-  Lemma undo_path g r xs rs ys :
-    path g rs xs r ->
-    mirror xs ys ->
-    path (undo_graph g xs ys) r ys rs.
-  Proof.
-    intros Hxs Hxsys.
-    enough (path (list_to_set ys) r ys rs).
-    { eapply path_weak.
-    - eapply H.
-    - unfold undo_graph; set_solver. }
-    eapply use_mirror; eauto.
-  Qed.
-
   Lemma undo_preserves_outside_path g r xs rs ys a zs b :
     path g rs xs r ->
     path g a zs b ->
@@ -2119,198 +2310,6 @@ Section pstore_G.
       intros elem Helem.
       rewrite elem_of_union. right.
       apply Hincl; done.
-  Qed.
-
-  Lemma path_use_diff_last_subseteq
-    g (a1 a2 : location) (ys1 ys2 xs : list (location * diff * location)) (r : location) :
-    acyclic g ->
-    unaliased g ->
-    path g a1 (ys1 ++ xs) r ->
-    path g a2 (ys2 ++ xs) r ->
-    diff_last ys1 ys2 ->
-    list_to_set ys2 ⊆ g ∖ list_to_set (ys1 ++ xs).
-  Proof.
-    intros.
-    apply subseteq_difference_r.
-    - intros el Hel1 Hel2.
-      rewrite elem_of_list_to_set in Hel1.
-      rewrite elem_of_list_to_set in Hel2.
-      eapply (path_use_diff_last g a1 a2); eauto.
-    -
-      destruct (path_middle g a2 ys2 xs r ltac:(subst; auto))
-        as (mid & Hmid1 & Hmid2).
-      eapply path_all_in; eauto.
-  Qed.
-
-  Lemma mirror_path_disjoint g na xs b xsm :
-    acyclic g ->
-    path g na xs b ->
-    mirror xs xsm ->
-    g ## list_to_set xsm.
-  Proof.
-    intros Hacyclic Pxs Mxs.
-    intros ((k, diff), l) Hklg1 Hklxsm.
-    rewrite elem_of_list_to_set in Hklxsm.
-    assert (exists diff', (l, diff', k) ∈ xs) as (diff' & Hlkxs).
-    { eapply mirror_mirrored_edges; eauto.
-      apply mirror_symm; eauto.
-    }
-    assert (path g k [(k, diff, l)] l) as Pkl.
-    { constructor; eauto. constructor. }
-    assert (path g l [(l, diff', k)] k) as Plk.
-    { apply path_weak with (list_to_set xs); eauto.
-    - { constructor; eauto.
-      - rewrite elem_of_list_to_set; eauto.
-      - constructor.
-      }
-    - eapply path_all_in.
-      apply Pxs.
-    }
-    discriminate (Hacyclic k ([(k, diff, l)] ++ [(l, diff', k)])); eauto.
-    { eapply path_app; eauto. }
-  Qed.
-
-  (* TODO move close to mirror? *)
-  Lemma mirror_app_inv_in_graph g na ys1 nb ys2 nc ysm :
-    let ys := ys1 ++ ys2 in
-    let g' := undo_graph g ys ysm in
-    path g na ys1 nb ->
-    path g nb ys2 nc ->
-    mirror ysm ys ->
-    exists ys1m ys2m,
-      ysm = ys2m ++ ys1m /\
-      mirror ys1m ys1 /\
-      mirror ys2m ys2 /\
-      path g' nc ys2m nb /\
-      path g' nb ys1m na
-  .
-  Proof.
-    revert ysm ys2 na.
-    induction ys1; intros ysm ys2 na ys g' Pab Pbc Hmirror.
-    - exists nil, ysm.
-      { split_and!; eauto.
-        - rewrite app_nil_r; done.
-        - constructor; done.
-        - apply (undo_path g nc ys2 nb ysm); eauto; [].
-          apply mirror_symm; eauto.
-        - inversion Pab; subst; constructor.
-      }
-    - unfold ys in Hmirror.
-      rewrite -app_comm_cons in Hmirror.
-      inversion Hmirror; subst.
-      inversion Pab; subst.
-      destruct (IHys1 xs ys2 r) as (ys1m & ys2m & Hxs & Mys1 & Mys2 & Pcb & Pbr); eauto; [].
-      exists (ys1m ++ [(r, x, r')]), ys2m.
-      { split_and!; eauto.
-      - subst xs.
-        rewrite assoc.
-        done.
-      - constructor; done.
-      - inversion Pab; subst.
-        apply path_weak with (list_to_set ys2m); first last.
-        {
-          unfold g'; unfold undo_graph.
-          intros elem Helem.
-          repeat rewrite list_to_set_app.
-          repeat (apply elem_of_union; left); done.
-        }
-        apply path_restrict with (undo_graph g (ys1 ++ ys2) (ys2m ++ ys1m)); done.
-      - inversion Pab; subst.
-        { apply path_app with r.
-        - apply path_weak with (list_to_set ys1m); first last.
-          {
-            unfold g'; unfold undo_graph.
-            intros elem Helem.
-            repeat rewrite list_to_set_app.
-            do 2 (apply elem_of_union; left).
-            apply elem_of_union; right.
-            done.
-          }
-          apply path_restrict with
-            (undo_graph g (ys1 ++ ys2) (ys2m ++ ys1m)); done.
-        - constructor; [ | constructor; done ].
-          unfold g'.
-          unfold undo_graph.
-          set_solver.
-        }
-      }
-  Qed.
-
-  (* TODO move to graphs ? *)
-  Definition graph_incl g1 g2 :=
-    forall k l, has_edge g1 k l -> has_edge g2 k l.
-
-  Definition graph_iso g1 g2 :=
-    graph_incl g1 g2 /\ graph_incl g2 g1.
-
-  Lemma mirror_mirror_incl xs xsm1 xsm2 :
-      mirror xsm1 xs ->
-      mirror xsm2 xs ->
-      graph_incl (list_to_set xsm1) (list_to_set xsm2).
-  Proof.
-    intros M1 M2.
-    assert (mirror xs xsm2) as M2symm by (eapply mirror_symm; eauto).
-    intros k l (diff & Hkl).
-    rewrite elem_of_list_to_set in Hkl.
-    destruct (mirror_mirrored_edges xsm1 xs k diff l) as (d1 & Hd1); eauto.
-    destruct (mirror_mirrored_edges xs xsm2 l d1 k) as (d2 & Hd2); eauto.
-    exists d2; rewrite elem_of_list_to_set; done.
-  Qed.
-
-  Lemma mirror_mirror xs xsm1 xsm2 :
-      mirror xsm1 xs ->
-      mirror xsm2 xs ->
-      graph_iso (list_to_set xsm1) (list_to_set xsm2).
-  Proof.
-    intros. split; eapply mirror_mirror_incl; eauto.
-Qed.
-
-  Lemma edge_of_union : forall g1 g2 k l,
-      has_edge (g1 ∪ g2) k l <-> (has_edge g1 k l ∨ has_edge g2 k l).
-  Proof.
-  Admitted.
-  
-  (* TODO a 'proper' instance or something? *)
-  Lemma union_incl g1 g1' g2 g2' :
-    graph_incl g1 g1' -> graph_incl g2 g2' -> graph_incl (g1 ∪ g2) (g1' ∪ g2').
-  Proof.
-    intros H1 H2.
-    intros k l (diff & Hkl).
-    rewrite elem_of_union in Hkl.
-    assert (forall g g' k l diff, graph_incl g g' -> (k, diff, l) ∈ g -> has_edge g' k l) as Hglue.
-    {
-      intros g g' k' l' diff' Hincl Helem.
-      destruct Hincl with k' l'; unfold has_edge; eauto.
-    }
-    rewrite edge_of_union.
-    destruct Hkl as [ Hkl | Hkl ]; [ left | right ]; eapply Hglue; eauto.
-  Qed.
-
-  Lemma union_iso g1 g1' g2 g2' :
-    graph_iso g1 g1' -> graph_iso g2 g2' -> graph_iso (g1 ∪ g2) (g1' ∪ g2').
-  Proof.
-    intros (H1 & H1') (H2 & H2').
-    split; eapply union_incl; eauto.
-  Qed.
-
-  Lemma undo_iso g xs ys :
-    list_to_set xs ⊆ g ->
-    graph_iso (list_to_set xs) (list_to_set ys) -> graph_iso g (undo_graph g xs ys).
-  Proof.
-    intros Hincl Hiso.
-    set g' := list_to_set xs ∪ (g ∖ list_to_set xs).
-    assert (g = g') as Hg.
-    {
-      apply leibniz_equiv.
-      subst g'.
-      rewrite union_comm.
-      rewrite difference_union.
-      set_solver.
-    }
-    replace (graph_iso g) with (graph_iso g') by (rewrite Hg; eauto).
-    unfold g', undo_graph.
-    apply union_iso; eauto; [].
-    unfold graph_iso; unfold graph_incl; intuition.
   Qed.
 
   Lemma undo_preserves_histo g1 r1 h1 orig r2 xs xsm :
