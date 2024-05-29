@@ -2357,9 +2357,15 @@ Section pstore_G.
     assert (list_to_set xs' ⊆ g1) by (eauto using path_all_in).
     assert (list_to_set suf ⊆ g1) by (eauto using path_all_in).
 
-    assert (xs' ## ys') by TODO admit.
-    assert (xs' ## suf) by TODO admit.
-    assert (suf ## ys') by TODO admit.
+    assert (ys' ## (xs' ++ suf)) as Hdiffxs'ys'.
+    { pose proof path_use_diff_last. set_solver. }
+    assert (xs' ## (ys' ++ suf)) as Hdiffys'xs'.
+    { subst. rewrite diff_last_comm in Hdiff.
+      pose proof path_use_diff_last. set_solver. }
+
+    assert (xs' ## ys') by set_solver.
+    assert (xs' ## suf) by set_solver.
+    assert (suf ## ys') by set_solver.
 
     assert (sufm ## ys'm) by TODO admit.
     assert (sufm ## xs') by TODO admit.
