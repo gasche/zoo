@@ -1183,6 +1183,52 @@ Section pstore_G.
     iDestruct (pointsto_ne with "[$][$]") as "%". congruence.
   Qed.
 
+  Lemma generations_decrease_along_history_edge h M C G r store_gen k l gk gl :
+    global_gen_inv h C G r store_gen ->
+    has_edge h k l ->
+    G !! k = Some gk ->
+    G !! l = Some gl ->
+    gk >= gl.
+  Proof.
+    intros (Hglobgeninv & _) Ekl Gk Gl .
+    pose proof (Hglobgeninv k gk l Ekl Gk) as Hkl.
+    unfold gen_succ_rel in Hkl.
+    rewrite Gl in Hkl.
+    destruct_decide (decide (captured C l)); lia.
+  Qed.
+
+  Lemma generations_decrease_along_history_path h M C G r store_gen na xs nb gena genb :
+    global_gen_inv h C G r store_gen ->
+    vertices h ⊆ dom G ->
+    path h na xs nb ->
+    G !! na = Some gena ->
+    G !! nb = Some genb ->
+    gena >= genb.
+  Proof.
+    intros (Hglobgen & _) Hdom.
+    revert xs na gena.
+    induction xs; intros na gena Pxs Ga Gb.
+    - inversion Pxs; subst.
+      rewrite Ga in Gb.
+      inversion Gb; subst.
+      eauto.
+    - inversion Pxs; subst.
+      assert (exists gena2, G !! a2 = Some gena2 /\ gena >= gena2) as (gena2 & Ga2 & Hgena2). {
+        assert (a2 ∈ dom G) as Ha2dom. {
+          enough (a2 ∈ vertices h) by set_solver.
+          eapply right_vertex; eauto.
+        }
+        destruct (elem_of_dom G a2) as [H1 _].
+        destruct H1 as (gena2, Ga2); eauto.
+        exists gena2; split; eauto.
+        pose proof (Hglobgen na gena a2 ltac:(eexists; eauto) Ga).
+        unfold gen_succ_rel in H. rewrite Ga2 in H.
+        revert H.
+        destruct_decide (decide (captured C a2)); lia.
+      }
+      pose proof (IHxs a2 gena2 H4 Ga2 Gb); lia.
+  Qed.
+
   (* NB our invariant asserts that g is indeed a rooted tree: a rooted DAG
      with unicity of paths. Indeed, from the set of pointsto we can extract [unaliased],
      (see [extract_unaliased]), and a DAG with unaliased guarantees unicity of paths
