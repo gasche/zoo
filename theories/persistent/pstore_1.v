@@ -739,6 +739,24 @@ Section graph.
     { eapply path_app; eauto. }
   Qed.
 
+  Lemma mirror_preserves_disjoint (g: graph A B) xs ys xs' ys' :
+    mirror xs xs' ->
+    mirror ys ys' ->
+    unaliased g ->
+    list_to_set xs ⊆ g ->
+    list_to_set ys ⊆ g ->
+    xs ## ys ->
+    xs' ## ys'.
+  Proof.
+    intros M1 M2 Hu ?? E . apply mirror_symm in M1,M2.
+    intros ((x,l),y) R1 R2.
+    destruct (mirror_mirrored_edges _ _ _ _ _ M1 R1) as (l1,R1').
+    destruct (mirror_mirrored_edges _ _ _ _ _ M2 R2) as (l2,R2').
+    assert ((y, l1, x) ∈ g /\ (y, l2, x) ∈ g) as (G1&G2) by set_solver.
+    destruct (Hu _ _ _ _ _ G1 G2) as (->&_).
+    eapply E with (y,l2,x); set_solver.
+  Qed.
+
   Definition pathlike (ys:list (A*B*A)) r :=
     forall a b a', (a,b,a') ∈ ys -> a' = r \/ exists b' a'', (a',b',a'') ∈ ys.
 
@@ -2367,9 +2385,15 @@ Section pstore_G.
     assert (xs' ## suf) by set_solver.
     assert (suf ## ys') by set_solver.
 
-    assert (sufm ## ys'm) by TODO admit.
-    assert (sufm ## xs') by TODO admit.
+    assert (sufm ## ys'm).
+    { subst.
+      apply mirror_app_inv in Htemp1. destruct Htemp1 as (a1&a2&M1&M2&Eq).
+      apply app_inj_1 in Eq.
+      2:{ apply mirror_same_length in M2,Msuf. lia. }
+      destruct Eq. subst a1 a2. apply mirror_symm in M1,M2.
+      eapply mirror_preserves_disjoint; try done. }
 
+    assert (sufm ## xs') by TODO admit.
     assert (xs'm ## sufm') by TODO admit.
     assert (xs'm ## ys') by TODO admit.
     assert (ys' ## sufm') by TODO admit.
