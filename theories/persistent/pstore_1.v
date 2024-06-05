@@ -1288,6 +1288,7 @@ Section pstore_G.
      history_inv g root h orig /\
      coherent M ρv ρg g /\
      rooted_dag g root /\
+     G !! orig = Some 0 /\
      global_gen_inv h C G root gen⌝ ∗
     t0.[root] ↦ #root ∗
     t0.[gen] ↦ #gen ∗
@@ -1305,6 +1306,7 @@ Section pstore_G.
          %Hist &
          %Hcoh &
          %Hgraph &
+         %Horiggen &
          %Hglobgen
         ) &
         Ht0 &
@@ -1381,6 +1383,8 @@ Section pstore_G.
       { intros ????. set_solver. } }
     { (* rooted_dag *)
       eauto using rooted_dag_empty. }
+    { (* orig gen = 0 *)
+      apply lookup_insert. }
     { (* global_gen_inv *)
       constructor.
     - intros k gk l (d, Habsurd).
@@ -1591,7 +1595,7 @@ Section pstore_G.
     iSpecialize ("Hρv" with "[$]").
     iSpecialize ("Hρg" with "[$]").
 
-    iAssert ⌜newroot ≠ root⌝%I as %?.
+    iAssert ⌜newroot ≠ root⌝%I as %Hnotroot.
     { iClear "Ht0". iDestruct (pointsto_ne with "Hnewroot Hroot") as %?. done. }
 
     iAssert ⌜newroot ∉ vertices g⌝%I as %Hnewroot.
@@ -1601,6 +1605,14 @@ Section pstore_G.
       { destruct b. destruct r1. iDestruct (big_sepS_elem_of with "[$]") as "H"; first done.
         iSimpl in "H".
         iDestruct (pointsto_ne with "H Hnewroot") as %?. congruence. } }
+
+    assert (newroot ≠ orig) as Hnotorig.
+    {
+      assert (orig ∈ dom G) as Hdom by (eapply elem_of_dom; eauto).
+      destruct Hinv.
+      rewrite -si1G0 si1M0 in Hdom.
+      set_solver.
+    }
 
     iModIntro.
 
@@ -1630,8 +1642,8 @@ Section pstore_G.
         destruct_decide (decide (newroot = l1)).
         { subst. rewrite lookup_insert. inversion_clear 1.
           inversion Hreach.
-          2:{ exfalso. subst. rewrite /edge elem_of_union in H0.
-              destruct H0; first set_solver. apply Hnewroot. apply elem_of_vertices. set_solver. }
+          2:{ exfalso. subst. rewrite /edge elem_of_union in H.
+              destruct H; first set_solver. apply Hnewroot. apply elem_of_vertices. set_solver. }
           subst.
           rewrite lookup_insert. inversion 1. done. }
         rewrite lookup_insert_ne //. intros E1.
@@ -1728,6 +1740,8 @@ Section pstore_G.
       }
     - (* rooted_dag *)
       eauto using rooted_dag_add.
+    - (* gen orig *)
+      rewrite lookup_insert_ne; eauto.
     - (* global_gen_inv *)
       assert (not (captured C newroot)) as CAPnr.
       {
