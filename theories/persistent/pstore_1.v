@@ -2919,6 +2919,80 @@ Section pstore_G.
       apply Hincl; done.
   Qed.
 
+  Definition not_a_key `{Countable A} `{Countable K} `{Countable V} (xs:list (A * (K * V) * A)) (r:K) := r ∉ xs.*1.*2.*1.
+
+  Lemma lwt_None  `{Countable A} `{Countable K} `{Countable V} (xs:list (A * (K * V) * A)) (r:K) :
+    lwt xs r = None <-> not_a_key xs r.
+  Proof.
+    induction xs as [|((?,(?,?)),?)].
+    { compute_done. }
+    { simpl. unfold not_a_key in *. case_decide; first set_solver.
+      rewrite IHxs. set_solver. }
+  Qed.
+
+  Lemma lwt_app_inv `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
+    lwt (xs ++ ys) r = Some n ->
+    (lwt xs r = Some n) \/ (not_a_key xs r /\ lwt ys r = Some n).
+  Proof.
+    revert ys. induction xs as [|((?,(?,?)),?)].
+    { right. split; last done.
+      rewrite /not_a_key. simpl. set_solver. }
+    { intros ys. simpl. case_decide.
+      { subst. naive_solver. }
+      { intros E. apply IHxs in E. destruct E as [|(?&?)].
+        { naive_solver. }
+        { right. split; last done. unfold not_a_key in *. set_solver. } } }
+  Qed.
+
+  Lemma lwt_spec `{Countable A} `{Countable K} `{Countable V} (xs:list (A * (K * V) * A)) (r:K) (n:A) :
+    lwt xs r = Some n ->
+    exists xs0 a0 (v:V) a1 xs1, xs = xs0 ++ [(a0,(r,v),a1)]++xs1 /\ not_a_key xs0 r.
+  Proof.
+    induction xs as [|((?,(?,?)),?)]; first done.
+    simpl. case_decide.
+    { subst. inversion 1. eexists nil,_,_,_,_. split; first done. compute_done. }
+    { intros E. apply IHxs in E. destruct E as (xs0&?&?&?&?&->&?).
+      eexists (_::xs0),_,_,_,_. split; first done. unfold not_a_key in *. set_solver. }
+  Qed.
+
+  Lemma lwt_app_l `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
+    lwt xs r = Some n ->
+    lwt (xs++ys) r = Some n.
+  Proof.
+    revert ys. induction xs as [|((?,(?,?)),?)]; first done. intros ys Hwt.
+    simpl in *. case_decide; first done. eauto.
+  Qed.
+
+  Lemma lwt_app_r `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
+    lwt xs r = None ->
+    lwt ys r = Some n ->
+    lwt (xs++ys) r = Some n.
+  Proof.
+    revert ys. induction xs as [|((?,(?,?)),?)]; first done. intros ys Hwt.
+    simpl in *. case_decide; first done. eauto.
+  Qed.
+
+  Lemma deduce_apply_diffl_app_not_a_key
+    (xs:list (node_loc * ref_diff * node_loc)) r ρg :
+    not_a_key xs r ->
+    apply_diffl (gchange_of_edge <$> xs) ρg !! r = ρg !! r.
+  Proof.
+    intros Hxs.
+    induction xs as [|((?,(?,(?,?))),?)].
+    { done. }
+    { unfold not_a_key in *. rewrite apply_diffl_cons.
+      rewrite lookup_insert_ne; set_solver. }
+  Qed.
+
+  Lemma not_a_key_mirror (xs ys:list (node_loc * ref_diff * node_loc)) r :
+    mirror xs ys ->
+    not_a_key xs r ->
+    not_a_key ys r.
+  Proof.
+    induction 1; first compute_done.
+    unfold not_a_key in *. rewrite !fmap_app !fmap_cons. set_solver.
+  Qed.
+
   Lemma undo_preserves_histo g1 G ρg n1 h1 orig n2 xs xsm :
     acyclic g1 ->
     unaliased g1 ->
@@ -3058,7 +3132,33 @@ Section pstore_G.
     - apply mirror_app; eauto.
       apply mirror_symm; eauto.
     - intros r n Hn.
-      admit.
+      unfold zsm in Hn.
+      apply lwt_app_inv in Hn.
+      destruct Hn as [Hn|(Hnk&Hn)].
+      (* r was in xs' *)
+      { apply lwt_spec in Hn. destruct Hn as (xs0&a0&v&a1&xs1&Hxs0&Hnot).
+        exists (snd v). subst xs xs'.
+        split.
+        { admit. (* Gabriel? *) }
+        { rewrite -!assoc_L.
+          rewrite fmap_app apply_diffl_app.
+          rewrite deduce_apply_diffl_app_not_a_key //.
+          destruct v. simpl. rewrite lookup_insert //. } }
+      (* r was in ys'm *)
+      { rewrite /lwt_inv in Hlwt. subst ysm xs.
+        destruct (lwt sufm r) eqn:Hpre.
+        { pose proof (lwt_app_l _ ys'm _ _ Hpre) as HZ.
+          apply Hlwt in HZ. destruct HZ as (x&E1&E2).
+          exists x. admit. (* Gabriel? *) }
+        { (* r is not in [xs' ++ suf], easy *)
+          pose proof (lwt_app_r _ ys'm _ _ Hpre Hn) as HZ.
+          apply Hlwt in HZ. destruct HZ as (x&?&?).
+          exists x. split; first done.
+          rewrite fmap_app apply_diffl_app.
+          rewrite deduce_apply_diffl_app_not_a_key //.
+          apply lwt_None in Hpre.
+          rewrite deduce_apply_diffl_app_not_a_key //.
+          { eapply not_a_key_mirror; last done. done. } } }
     - rewrite Dh2.
       rewrite Dg2.
       unfold undo_graph.
