@@ -1123,7 +1123,7 @@ Section pstore_G.
     exists xs ys,
       path g orig xs root /\
       mirror xs ys /\
-      h ≡ undo_graph g xs ys.
+      h = undo_graph g xs ys.
 
   Lemma history_vertices g root h orig :
     history_inv g root h orig ->
@@ -1705,25 +1705,22 @@ Section pstore_G.
         }
       - rewrite Hhisto.
         unfold undo_graph.
-        rewrite list_to_set_cons.
-        rewrite list_to_set_app.
-        rewrite list_to_set_singleton.
+        rewrite list_to_set_cons !list_to_set_app_L. simpl.
         enough (
           g ∖ list_to_set xs
-          ≡
+          =
           ({[(root, rdiff, newroot)]} ∪ g) ∖ (list_to_set xs ∪ {[(root, rdiff, newroot)]})
-        ) as Henough by (setoid_rewrite Henough; set_solver).
-        rewrite difference_union_distr_l.
-        setoid_replace
+          ) as Henough.
+        { rewrite Henough right_id_L. set_solver. }
+        rewrite difference_union_distr_l_L.
+        replace
           ({[(root, rdiff, newroot)]} ∖ (list_to_set xs ∪ {[(root, rdiff, newroot)]}) : graph_store)
           with (∅ : graph_store) by set_solver.
-        rewrite difference_union_distr_r.
-        setoid_replace
+        rewrite difference_union_distr_r_L.
+        replace
           (g ∖ {[(root, rdiff, newroot)]}) with g; first last.
-        { apply difference_disjoint.
-          unfold disjoint.
-          intros tri Hg Htri.
-          assert (tri = (root, rdiff, newroot)) by set_solver; subst.
+        { enough ((root, rdiff, newroot) ∉ g); first set_solver.
+          intros ?.
           contradiction Hnewroot.
           eapply right_vertex; eauto. }
         set_solver.
@@ -2797,8 +2794,7 @@ Section pstore_G.
     intros Hacyclic Hunalias (ys & ysm & Hys & Hysysm & Hhisto) Hxs Hxsxsm.
     unfold history_inv.
     set g2 := undo_graph g1 xs xsm.
-    assert (h1 = undo_graph g1 ys ysm) as Hhisto_strict.
-    { apply leibniz_equiv; done. }
+
     assert (path g2 n1 xsm n2) as Hxsm by (eapply undo_path; eauto).
     assert (path h1 n1 ysm orig) as Hysm by (subst h1; eapply undo_path; eauto).
     destruct
@@ -2925,7 +2921,7 @@ Section pstore_G.
       rewrite Dg2.
       unfold undo_graph.
       subst zs zsm.
-      repeat rewrite list_to_set_app.
+      rewrite !list_to_set_app_L.
       replace
         ((grest ∪ (list_to_set ys' ∪ list_to_set sufm' ∪ list_to_set xs'm))
          ∖ (list_to_set ys' ∪ list_to_set xs'm))
