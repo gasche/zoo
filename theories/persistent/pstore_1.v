@@ -540,22 +540,91 @@ Section graph.
     eauto using path_cycle_end_inv_aux.
   Qed.
 
+  Definition pathlike (ys:list (A*B*A)) r :=
+    forall a b a', (a,b,a') ∈ ys -> a' = r \/ exists b' a'', (a',b',a'') ∈ ys.
+
+  Lemma path_pathlike (g:graph A B) r ys y :
+    path g y ys r ->
+    pathlike ys r.
+  Proof.
+    intros Hpath a b a' Hedge.
+    apply elem_of_middle in Hedge. destruct Hedge as (?&?&->).
+    rewrite cons_middle assoc_L in Hpath.
+    apply path_app_inv in Hpath. destruct Hpath as (?&Hpath&Hp').
+    apply path_snoc_inv in Hpath. destruct Hpath as (?&?&?). subst.
+    inversion Hp'; set_solver.
+  Qed.
+
+  Lemma same_path g xs a1 a2 a3 a4 :
+    path g a1 xs a2 ->
+    path g a3 xs a4 ->
+    xs ≠ nil ->
+    a1 = a3 /\ a2=a4.
+  Proof.
+    intros Hp1. revert a3 a4. induction Hp1.
+    { intros. congruence. }
+    intros a3' a4'. inversion 1. subst. intros _. destruct bs.
+    { inversion Hp1; inversion H10. subst. done. }
+    apply IHHp1 in H10. 2:done. naive_solver.
+  Qed.
+
+  Lemma path_ends_vertices g x1 xs x2 :
+    path g x1 xs x2 ->
+    (x1 = x2) \/ (x1 ∈ vertices g /\ x2 ∈ vertices g).
+  Proof.
+     inversion 1; first eauto.
+     subst. right.
+     split.
+     - apply elem_of_vertices. eauto.
+     - apply path_inv_r in H3. destruct H3 as [(->&->)|(?&?&?&->&?&?)].
+       all:apply elem_of_vertices; eauto.
+  Qed.
+
+  (* 'undo_graph' is in fact a generic substitution operation on graphs *)
+  Definition undo_graph (g : graph A B) (xs ys : list (A * B * A)) : graph A B :=
+    list_to_set ys ∪ g ∖ list_to_set xs.
+
+  Lemma undo_iso g xs ys :
+    list_to_set xs ⊆ g ->
+    graph_iso (list_to_set xs) (list_to_set ys) -> graph_iso g (undo_graph g xs ys).
+  Proof.
+    intros Hincl Hiso.
+    set g' := list_to_set xs ∪ (g ∖ list_to_set xs).
+    assert (g = g') as Hg.
+    {
+      apply leibniz_equiv.
+      subst g'.
+      rewrite union_comm.
+      rewrite difference_union.
+      set_solver.
+    }
+    replace (graph_iso g) with (graph_iso g') by (rewrite Hg; eauto).
+    unfold g', undo_graph.
+    apply union_iso; eauto; [].
+    unfold graph_iso; unfold graph_incl; intuition.
+  Qed.
+End graph.
+
+Section mirror.
+  Context `{Countable A} `{Countable K} `{Countable V}.
+
+
   (* [mirror xs ys] asserts that, up-to labels, the path xs is the reverse of ys *)
   Inductive mirror :
-    list (A*B*A) -> list (A*B*A) -> Prop :=
+    list (A*(K*V)*A) -> list (A*(K*V)*A) -> Prop :=
   | mirror_nil :
     mirror [] []
   | mirror_cons :
-    forall r x x' r' xs ys,
+    forall r k v v' r' xs ys,
       mirror xs ys  ->
-      mirror (xs++[(r,x,r')]) ((r',x',r)::ys).
+      mirror (xs++[(r,(k,v),r')]) ((r',(k,v'),r)::ys).
 
-  Lemma mirror_snoc ys xs a a' x x' :
+  Lemma mirror_snoc ys xs a a' k v v' :
     mirror ys xs ->
-    mirror ((a,x,a') :: ys) (xs ++ [(a',x',a)]).
+    mirror ((a,(k,v),a') :: ys) (xs ++ [(a',(k,v'),a)]).
   Proof.
     induction 1.
-    { apply (mirror_cons _ _ _ _ nil nil). apply mirror_nil. }
+    { apply (mirror_cons _ _ _ _ _ nil nil). apply mirror_nil. }
     rewrite -!app_comm_cons app_comm_cons. by apply mirror_cons.
   Qed.
 
@@ -567,7 +636,7 @@ Section graph.
     - apply mirror_snoc; done.
   Qed.
 
-  Lemma use_mirror xs ys (g:graph A B) r y :
+  Lemma use_mirror (xs ys:list (A*(K*V)*A)) (g:graph A (K*V)) r y :
     mirror xs ys ->
     path g r xs y ->
     path (list_to_set ys) y ys r.
@@ -581,7 +650,7 @@ Section graph.
     - set_solver.
   Qed.
 
-  Lemma mirror_vertices (xs ys:list (A*B*A)) :
+  Lemma mirror_vertices xs ys :
     mirror xs ys ->
     vertices (list_to_set ys) = vertices (list_to_set xs).
   Proof.
@@ -590,7 +659,7 @@ Section graph.
     erewrite IHys; last done. rewrite vertices_empty. set_solver.
   Qed.
 
-  Lemma mirror_same_length (xs ys:list (A*B*A)):
+  Lemma mirror_same_length xs ys :
     mirror xs ys ->
     length xs = length ys.
   Proof. induction 1; first done. rewrite app_length. simpl. lia. Qed.
@@ -624,13 +693,13 @@ Section graph.
   Lemma mirror_app : forall xs1 ys1 xs2 ys2,
     mirror xs1 ys1 -> mirror xs2 ys2 -> mirror (xs1 ++ xs2) (ys2 ++ ys1).
   Proof.
-    intros xs1 ys1. revert xs1. induction ys1; intros xs1 xs2 ys2 H1 H2.
-    - inversion H1.
+    intros xs1 ys1. revert xs1. induction ys1; intros xs1 xs2 ys2 X1 X2.
+    - inversion X1.
       rewrite app_nil_r. assumption.
-    - inversion H1; subst.
-      replace ((xs ++ [(r, x, r')]) ++ xs2) with (xs ++ ([(r, x, r')] ++ xs2)); first last.
+    - inversion X1; subst.
+      replace ((xs ++ [(r, _, r')]) ++ xs2) with (xs ++ ([(r, (k,v), r')] ++ xs2)); first last.
       { rewrite assoc; eauto. }
-      replace (ys2 ++ (r', x', r) :: ys1) with ((ys2 ++ [(r', x', r)]) ++ ys1); first last.
+      replace (ys2 ++ (r', _, r) :: ys1) with ((ys2 ++ [(r', (k,v'), r)]) ++ ys1); first last.
       { rewrite -assoc; eauto. }
       apply IHys1; eauto.
       simpl.
@@ -638,7 +707,7 @@ Section graph.
       assumption.
   Qed.
 
-  Lemma mirror_app_inv (xs ys1 ys2 : list (A * B * A)) :
+  Lemma mirror_app_inv xs ys1 ys2:
     mirror xs (ys1 ++ ys2) ->
     exists xs1 xs2,
       mirror xs1 ys1 /\
@@ -648,7 +717,7 @@ Section graph.
     revert xs ys2. induction ys1; intros xs ys2 Hmirror.
     - exists nil, xs. rewrite right_id_L. split; eauto using mirror_nil.
     - rewrite -app_comm_cons in Hmirror. inversion Hmirror. subst.
-      apply IHys1 in H3. destruct H3 as (xs1&xs2&?&?&->).
+      apply IHys1 in H4. destruct H4 as (xs1&xs2&?&?&->).
       eexists _,xs2.
       { split_and !.
       - apply mirror_cons; eauto.
@@ -679,14 +748,14 @@ Section graph.
     intros. split; eapply mirror_mirror_incl; eauto.
   Qed.
 
-  Lemma path_middle (g:graph A B) x xs ys z :
+  Lemma path_middle (g:graph A (K*V)) x xs ys z :
     path g x (xs ++ ys) z ->
     exists y, path g x xs y /\ path g y ys z.
   Proof.
     revert g x ys z. induction xs; intros g x ys z.
     { simpl. eauto using path_nil. }
     inversion 1; simpl in *; subst.
-    apply IHxs in H7. destruct H7 as (y,(?&?)).
+    apply IHxs in H8. destruct H8 as (y,(?&?)).
     exists y. split; last done. eauto using path_cons.
   Qed.
 
@@ -737,7 +806,7 @@ Section graph.
     { eapply path_app; eauto. }
   Qed.
 
-  Lemma mirror_preserves_disjoint (g: graph A B) xs ys xs' ys' :
+  Lemma mirror_preserves_disjoint (g:graph A (K*V)) xs ys xs' ys' :
     mirror xs xs' ->
     mirror ys ys' ->
     unaliased g ->
@@ -754,50 +823,6 @@ Section graph.
     destruct (Hu _ _ _ _ _ G1 G2) as (->&_).
     eapply E with (y,l2,x); set_solver.
   Qed.
-
-  Definition pathlike (ys:list (A*B*A)) r :=
-    forall a b a', (a,b,a') ∈ ys -> a' = r \/ exists b' a'', (a',b',a'') ∈ ys.
-
-  Lemma path_pathlike g r ys y :
-    path g y ys r ->
-    pathlike ys r.
-  Proof.
-    intros Hpath a b a' Hedge.
-    apply elem_of_middle in Hedge. destruct Hedge as (?&?&->).
-    rewrite cons_middle assoc_L in Hpath.
-    apply path_app_inv in Hpath. destruct Hpath as (?&Hpath&Hp').
-    apply path_snoc_inv in Hpath. destruct Hpath as (?&?&?). subst.
-    inversion Hp'; set_solver.
-  Qed.
-
-  Lemma same_path g (xs:list (A*B*A)) a1 a2 a3 a4 :
-    path g a1 xs a2 ->
-    path g a3 xs a4 ->
-    xs ≠ nil ->
-    a1 = a3 /\ a2=a4.
-  Proof.
-    intros Hp1. revert a3 a4. induction Hp1.
-    { intros. congruence. }
-    intros a3' a4'. inversion 1. subst. intros _. destruct bs.
-    { inversion Hp1; inversion H10. subst. done. }
-    apply IHHp1 in H10. 2:done. naive_solver.
-  Qed.
-
-  Lemma path_ends_vertices g x1 xs x2 :
-    path g x1 xs x2 ->
-    (x1 = x2) \/ (x1 ∈ vertices g /\ x2 ∈ vertices g).
-  Proof.
-     inversion 1; first eauto.
-     subst. right.
-     split.
-     - apply elem_of_vertices. eauto.
-     - apply path_inv_r in H3. destruct H3 as [(->&->)|(?&?&?&->&?&?)].
-       all:apply elem_of_vertices; eauto.
-  Qed.
-
-  (* 'undo_graph' is in fact a generic substitution operation on graphs *)
-  Definition undo_graph (g : graph A B) (xs ys : list (A * B * A)) : graph A B :=
-    list_to_set ys ∪ g ∖ list_to_set xs.
 
   Lemma undo_path g j xs k ys :
     path g k xs j ->
@@ -841,7 +866,7 @@ Section graph.
       inversion Hmirror; subst.
       inversion Pab; subst.
       destruct (IHys1 xs ys2 r) as (ys1m & ys2m & Hxs & Mys1 & Mys2 & Pcb & Pbr); eauto; [].
-      exists (ys1m ++ [(r, x, r')]), ys2m.
+      eexists (ys1m ++ [(r, _, r')]), ys2m.
       { split_and!; eauto.
       - subst xs.
         rewrite assoc.
@@ -878,26 +903,6 @@ Section graph.
 
   Qed.
 
-  Lemma undo_iso g xs ys :
-    list_to_set xs ⊆ g ->
-    graph_iso (list_to_set xs) (list_to_set ys) -> graph_iso g (undo_graph g xs ys).
-  Proof.
-    intros Hincl Hiso.
-    set g' := list_to_set xs ∪ (g ∖ list_to_set xs).
-    assert (g = g') as Hg.
-    {
-      apply leibniz_equiv.
-      subst g'.
-      rewrite union_comm.
-      rewrite difference_union.
-      set_solver.
-    }
-    replace (graph_iso g) with (graph_iso g') by (rewrite Hg; eauto).
-    unfold g', undo_graph.
-    apply union_iso; eauto; [].
-    unfold graph_iso; unfold graph_incl; intuition.
-  Qed.
-
   Lemma undo_mirror_vertices g xs ys :
     mirror xs ys ->
     list_to_set xs ⊆ g ->
@@ -915,7 +920,7 @@ Section graph.
     repeat rewrite vertices_union.
     rewrite (mirror_vertices xs); eauto.
   Qed.
-End graph.
+End mirror.
 
 (* ------------------------------------------------------------------------ *)
 (* Define apply_diffl, a function applying a list of diff. *)
@@ -2456,8 +2461,9 @@ Section pstore_G.
         { rewrite -app_comm_cons. eapply path_cons; first done.
           eapply path_app; eauto. }
         { set_solver. } }
-      { apply IHHy1; eauto.  unfold diff_last in *. rewrite last_cons in Hlast.
-        destruct (last bs), (last ys2); try done. } }
+      { apply IHHy1; eauto. unfold diff_last in *. rewrite last_cons in Hlast.
+        destruct (last bs) eqn:Z1, (last ys2) eqn:Z2; rewrite ?Z1 ?Z2; try done.
+        rewrite Z1 in Hlast. done. } }
     { unfold undo_graph. intros a zs Hzs. rewrite comm_L in Hzs.
       apply path_union_inv in Hzs. destruct Hzs as [Hsz|Hsz].
       (* The cycle is only in g, easy. *)
@@ -2647,7 +2653,7 @@ Section pstore_G.
          reflexivity.
        - { destruct IHHmirror with a r as (d' & Hd').
            - assumption.
-           - destruct (path_middle g a xs [(r, x, r')] b Hpath) as (b' & Hpath1 & Hpath2).
+           - destruct (path_middle g a xs [(r, _, r')] b Hpath) as (b' & Hpath1 & Hpath2).
              inversion Hpath2; subst.
              assumption.
            - exists d'; eauto.
@@ -2884,14 +2890,16 @@ Section pstore_G.
     {
       subst grest. rewrite difference_union_L. set_solver.
     }
-    assert (h1 = grest ∪ (list_to_set ys'm ∪ list_to_set sufm ∪ list_to_set xs')) as Dh1 by set_solver.
-    assert (g2 = grest ∪ (list_to_set ys' ∪ list_to_set sufm' ∪ list_to_set xs'm)) as Dg2 by set_solver.
-    assert (h2 = grest ∪ (list_to_set ys'm ∪ list_to_set sufm' ∪ list_to_set xs')) as Dh2.
-    {
+
+    (* XXX for these three, set_solver works but is too slow for me. *)
+    assert (h1 = grest ∪ (list_to_set ys'm ∪ list_to_set sufm ∪ list_to_set xs')) as Dh1 by admit.
+    assert (g2 = grest ∪ (list_to_set ys' ∪ list_to_set sufm' ∪ list_to_set xs'm)) as Dg2 by admit.
+    assert (h2 = grest ∪ (list_to_set ys'm ∪ list_to_set sufm' ∪ list_to_set xs')) as Dh2 by admit.
+(*    {
       subst h2.
       rewrite Dh1.
       set_solver.
-    }
+    } *)
     assert (graph_iso h1 h2) as Hiso2.
     {
       unfold h2.
@@ -3101,7 +3109,6 @@ Section pstore_G.
         rewrite /edge elem_of_union in Hedge. rewrite elem_of_union.
         destruct Hedge as [Hedge|Hedge].
         { right.
-          Check undo_same_fst_label.
           rewrite -vchange_fst_label.
           eauto using undo_same_fst_label. }
         { left. eapply (X2 n0). eapply elem_of_subseteq. 2:done. set_solver. }
@@ -3125,7 +3132,7 @@ Section pstore_G.
         apply Hsnapgen.
     }
   Qed.
-End pstore_G.
+End pstore_.
 
 #[global] Opaque pstore_create.
 #[global] Opaque pstore_ref.

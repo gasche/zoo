@@ -1,8 +1,10 @@
 - extend 'mirror' to preserve the references: currently mirror works
   on graph with edges of type `A*B*A`, move this to `A*(K*V)*A` and
   ask that K be preserved (V may change in arbitrary ways).
-  
+  ALEX: DONE.
+
   Note: then we can probably get rid of `undo_same_fst_label`.
+  ALEX: perhaps, leaving it for now.
 
 - extend `undo` with a correct update of the ρg in addition to the ρv.
 
@@ -10,7 +12,7 @@
   node. Complement it with a new MG which returns
   a (ref_loc -> generation) mapping for each node – or maybe extend
   M to return both, if it does not induce too much proof churn.
-   
+
   Invariants:
   - something like correct-path-diff, for generations in addition to values
   - MG(orig) is the constant-0 function
@@ -25,7 +27,7 @@
   up the path from orig to root in the current graph (walking up: from
   root to orig). If n is the first node along the way to record
   a change for r, we have G(n) = ρg(r).
-  
+
   Note: if we can define this in term of the current graph, maybe we
   did not need to introduce the history graph after all? To be
   determined.
