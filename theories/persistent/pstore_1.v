@@ -922,6 +922,19 @@ Section mirror.
   Qed.
 End mirror.
 
+(* last write to *)
+Section lwt.
+  Context `{Countable A} `{Countable K} `{Countable V}.
+
+  (* xs is meant to be a path from root to orig *)
+  Fixpoint lwt (xs:list (A*(K*V)*A)) (r:K) :=
+    match xs with
+    | [] => None
+    | (n,(k,_),_)::xs =>
+        if (decide (k=r)) then Some n else lwt xs r end.
+
+End lwt.
+
 (* ------------------------------------------------------------------------ *)
 (* Define apply_diffl, a function applying a list of diff. *)
 
@@ -990,9 +1003,9 @@ Notation node_map V := (gmap node_loc V).
 Notation ref_map V := (gmap ref_loc V).
 Notation node_graph V := (graph node_loc V).
 
-Notation mapping := (ref_map val).
 
 Definition reference_model := (val * generation)%type.
+Notation mapping := (ref_map reference_model).
 
 Definition snapshot_model := (node_loc * mapping * generation)%type.
 Notation snapshots_model := (gset snapshot_model).
@@ -1009,7 +1022,7 @@ Implicit Types j k l n root snaproot : node_loc.
 Implicit Types r : ref_loc.
 Implicit Types v t s : val.
 Implicit Types w : reference_model.
-Implicit Types σ : mapping.
+Implicit Types σ : ref_map val.
 Implicit Types gen snapgen refgen : generation.
 
 Implicit Types g h : graph_store.
@@ -1026,6 +1039,9 @@ Definition vchange_of_edge : ref_diff_edge -> ref_loc * val :=
 
 Definition gchange_of_edge : ref_diff_edge -> ref_loc * generation :=
   fun '(j, (r, (v, gen)), k) => (r, gen).
+
+Definition change_of_edge : ref_diff_edge -> ref_loc * (val * generation) :=
+  fun '(j, (r, x), k) => (r, x).
 
 Class PstoreG Σ `{zoo_G : !ZooG Σ} := {
   #[local] pstore_G_set_G :: MonoSetG Σ snapshot_model ;
@@ -1045,15 +1061,18 @@ Section pstore_G.
   Context `{pstore_G : PstoreG Σ}.
 
   Definition correct_path_diff (M:map_model) (g:graph_store) :=
-    forall n1 (ds : list ref_diff_edge) n2 σ1 σ2,
-      path g n1 ds n2 -> M !! n1 = Some σ1 -> M !! n2 = Some σ2 ->
-      σ1 = (apply_diffl (vchange_of_edge <$> ds) σ2).
+    forall n1 (ds : list ref_diff_edge) n2 x1 x2,
+      path g n1 ds n2 -> M !! n1 = Some x1 -> M !! n2 = Some x2 ->
+      x1 = (apply_diffl (change_of_edge <$> ds) x2).
 
-  Record store_inv (M:map_model) (G:node_generations) (g:graph_store) (root:node_loc) σ ρv :=
+  Definition decomp (M:map_model) root ρv ρg :=
+    exists ρ, M !! root = Some ρ /\ ρv = (fst <$> ρ) /\ ρg = (snd <$> ρ).
+
+  Record store_inv (M:map_model) (G:node_generations) (g:graph_store) (root:node_loc) σ ρv ρg :=
     { si1M : dom M = vertices g ∪ {[root]};
       si1G : dom M = dom G;
       si2 : σ ⊆ ρv;
-      si3 : M !! root = Some ρv ;
+      si3 : decomp M root ρv ρg;
       si4 : correct_path_diff M g
     }.
 
@@ -1061,13 +1080,13 @@ Section pstore_G.
     forall n r w n', edge g n (r,w) n' -> r ∈ X.
 
   Record coherent (M:map_model) ρv ρg g :=
-    { coh1 : forall n σ, M !! n = Some σ -> dom σ = dom ρv;
+    { coh1 : forall n x, M !! n = Some x -> dom x = dom ρv;
       coh2 : references_in g (dom ρv);
       coh3 : dom ρv = dom ρg;
     }.
 
   Definition captured C n :=
-    exists σ gen, (n, σ, gen) ∈ C.
+    exists x gen, (n, x, gen) ∈ C.
 
   (* TODO include in stdpp ?
      https://gitlab.mpi-sws.org/iris/stdpp/-/issues/209 *)
@@ -1124,30 +1143,36 @@ Section pstore_G.
     exact (Htop k Hk).
   Qed.
 
-  Definition history_inv g root h orig :=
+  Definition lwt_inv G ρg (ys: list ref_diff_edge) :=
+    forall r n,
+      lwt ys r = Some n ->
+      exists x, G !! n = Some x /\ ρg !! r = Some x.
+
+  Definition history_inv g G ρg root h orig :=
     exists xs ys,
       path g orig xs root /\
       mirror xs ys /\
+      lwt_inv G ρg ys /\
       h = undo_graph g xs ys.
 
-  Lemma history_vertices g root h orig :
-    history_inv g root h orig ->
+  Lemma history_vertices g G ρg root h orig :
+    history_inv g G ρg root h orig ->
     vertices g = vertices h.
   Proof.
-    intros (xs & ys & Pxs & Mxsys & Hundo).
+    intros (xs & ys & Pxs & Mxsys & _ & Hundo).
     replace h with (undo_graph g xs ys) by (by apply leibniz_equiv).
     apply undo_mirror_vertices; eauto.
     eapply path_all_in; eauto.
   Qed.
 
-  Lemma history_vertices_have_a_generation M C G g root σ ρv h orig :
-    store_inv M G g root σ ρv ->
-    history_inv g root h orig ->
+  Lemma history_vertices_have_a_generation M C G ρg g root σ ρv h orig :
+    store_inv M G g root σ ρv ρg ->
+    history_inv g G ρg root h orig ->
     forall k, k ∈ vertices h ->
     exists kgen, G !! k = Some kgen.
   Proof.
     intros Hstore_inv Histo_inv k Hk.
-    rewrite -(history_vertices g root h orig) in Hk; eauto.
+    rewrite -(history_vertices g G ρg root h orig) in Hk; eauto.
     destruct Hstore_inv.
     assert (k ∈ dom G) as HkG by set_solver.
     eapply elem_of_dom; eauto.
@@ -1177,10 +1202,10 @@ Section pstore_G.
        for a child of the current root. *)
     (gen_succ_rel C G store_gen root).
 
-  Definition snapshot_inv M C G l σ snap_gen :=
-    exists σ',
-      M !! l = Some σ' /\
-      σ ⊆ σ' /\
+  Definition snapshot_inv M C G l x snap_gen :=
+    exists x',
+      M !! l = Some x' /\
+      x ⊆ x' /\
       (* /!\ [snap_gen] is the value store in the [snap_gen] field of
          the snapshot, which corresponds to the current store
          generation *before* the snapshot was captured. It is not in
@@ -1190,13 +1215,13 @@ Section pstore_G.
       gen_succ_rel C G (1 + snap_gen) l.
 
   Definition snapshots_inv M C G :=
-    forall l σ snap_gen, (l, σ, snap_gen) ∈ C ->
-      snapshot_inv M C G l σ snap_gen.
+    forall l x snap_gen, (l, x, snap_gen) ∈ C ->
+      snapshot_inv M C G l x snap_gen.
 
   #[local] Definition pstore_map_auth (γ:gname) (s:gset snapshot_model) :=
     mono_set_auth γ (DfracOwn 1) s.
-  #[local] Definition pstore_map_elem γ l σ gen :=
-    mono_set_elem γ (l, σ, gen).
+  #[local] Definition pstore_map_elem γ l σ gen : iProp Σ:=
+    ∃ x, ⌜σ = fst <$> x⌝ ∗ mono_set_elem γ (l, x, gen).
 
 
   (* FIXME: I don't know how to unfold notations in spatial hypotheses,
@@ -1288,9 +1313,9 @@ Section pstore_G.
       (G:node_generations) (* the generation of each node *)
       ,
     ⌜t=#t0 /\
-     store_inv M G g root σ ρv /\
+     store_inv M G g root σ ρv ρg /\
      topology_inv g M C root /\
-     history_inv g root h orig /\
+     history_inv g G ρg root h orig /\
      coherent M ρv ρg g /\
      rooted_dag g root /\
      G !! orig = Some 0 /\
@@ -1338,6 +1363,16 @@ Section pstore_G.
     apply _.
   Qed.
 
+  Lemma lwt_inv_init root :
+    lwt_inv {[root := 0]} ∅ [].
+  Proof. done. Qed.
+
+  Lemma decomp_init root :
+    decomp {[root := ∅]} root ∅ ∅.
+  Proof.
+    exists ∅. rewrite lookup_insert //.
+  Qed.
+
   Lemma pstore_create_spec :
     {{{ True }}}
       pstore_create ()
@@ -1366,7 +1401,7 @@ Section pstore_G.
       { rewrite dom_singleton_L vertices_empty //. set_solver. }
       { set_solver. }
       { set_solver. }
-      { rewrite lookup_insert //. }
+      { eauto using decomp_init. }
       { intros ????? Hroot.
         rewrite !lookup_singleton_Some.
         inversion Hroot; set_solver. } }
@@ -1380,7 +1415,7 @@ Section pstore_G.
     }
     { (* history_inv *)
       exists []. exists []. unfold undo_graph.
-      split_and!; eauto; constructor.
+      split_and!; eauto using lwt_inv_init; constructor.
     }
     { (* coherent *)
       constructor; eauto.
@@ -1405,6 +1440,17 @@ Section pstore_G.
   Qed.
 
   Lemma use_references_in g n ds n' X :
+    references_in g X ->
+    path g n ds n' ->
+    (list_to_set (change_of_edge <$> ds).*1) ⊆ X.
+  Proof.
+    intros He.
+    induction 1; first set_solver.
+    destruct b as (r & v & gen).
+    apply He in H. set_solver.
+  Qed.
+
+  Lemma use_references_in' g n ds n' X :
     references_in g X ->
     path g n ds n' ->
     (list_to_set (vchange_of_edge <$> ds).*1) ⊆ X.
@@ -1438,6 +1484,17 @@ Section pstore_G.
     intros (x & Hx).
     destruct (use_r_in_dom m1 m2 r x Hdom) as (y & Hy); eauto.
     naive_solver.
+  Qed.
+
+  Lemma lwt_inv_insert r G ρg ys :
+    ρg !! r = None ->
+    lwt_inv G ρg ys ->
+    lwt_inv G (<[r:=0]> ρg) ys.
+  Proof.
+    intros ? Hlwt l n Hn.
+    apply Hlwt in Hn. destruct Hn as (x&?&?).
+    exists x. split; first done. rewrite lookup_insert_ne //.
+    intros ->. naive_solver.
   Qed.
 
   Lemma pstore_ref_spec t σ v :
@@ -1475,7 +1532,7 @@ Section pstore_G.
     iModIntro. iSplitR. { iPureIntro. by eapply not_elem_of_dom. }
     iExists (* r0, root, orig, gen: *) t0, root, orig, gen,
             (* ρv, ρg, g, h: *) (<[r:=v]>ρv), (<[r:=0]>ρg), g, h,
-            (* M, C, G: *) ((fun σ => <[r:=v]>σ)<$> M),C,G.
+            (* M, C, G: *) ((fun x => <[r:=(v,0)]>x)<$> M),C,G.
 
     do 2 rewrite big_sepM_insert //. iFrame "∗".
     iSplitL "Hrest"; [ iPureIntro; split_and!; eauto | eauto ].
@@ -1485,7 +1542,7 @@ Section pstore_G.
       { rewrite dom_fmap_L; set_solver. }
       { rewrite dom_fmap_L; set_solver. }
       { eauto using gmap_included_insert. }
-      { rewrite lookup_fmap X4 //. }
+      { destruct X4 as (x&E1&E2&E3). exists (<[r:=(v,0)]> x). rewrite !lookup_fmap E1 E2 E3 !fmap_insert //. }
       { intros l1 ds l2 σ1 σ2 Hl. rewrite !lookup_fmap. generalize Hl. intros Hreach.
         intros Hl1 Hl2.
         destruct (M !! l1) eqn:Hor1. 2:simpl in *; congruence.
@@ -1502,6 +1559,9 @@ Section pstore_G.
       { set_solver. }
       { assumption. }
     }
+    { destruct Hist as (xs&ys&?&?&?&?).
+      exists xs,ys; split_and!; eauto using lwt_inv_insert.
+    }
     { (* coherent *)
       destruct Hcoh as [X1 X2].
       constructor.
@@ -1514,8 +1574,8 @@ Section pstore_G.
     { (* snapshots_inv *)
       iDestruct "HC" as "[% (%Hsnap&?&?)]".
       iExists γ. iFrame. iPureIntro.
-      intros snaproot ? ? HC. apply Hsnap in HC. destruct HC as (x & Hx & ? & ?).
-      exists (<[r:=v]>x).
+      intros snaproot ? ? HC. apply Hsnap in HC. destruct HC as (x' & Hx & ? & ?).
+      exists (<[r:=(v,0)]>x').
       split_and!; eauto.
       - rewrite lookup_fmap Hx; eauto.
       - apply gmap_included_insert_notin; eauto.
@@ -1525,8 +1585,8 @@ Section pstore_G.
   Qed.
 
 
-  Lemma use_r_in_σ {M G g root} σ ρv r v :
-    store_inv M G g root σ ρv ->
+  Lemma use_r_in_σ {M G g root} σ ρv ρg r v :
+    store_inv M G g root σ ρv ρg ->
     σ !! r = Some v ->
     ρv !! r = Some v.
   Proof.
@@ -1553,7 +1613,7 @@ Section pstore_G.
     wp_rec. iStep 4. iModIntro.
 
     assert (ρv !! r = Some v) as Hρv.
-    { eapply use_r_in_σ with σ; eauto. }
+    { eapply use_r_in_σ with σ _; eauto. }
 
     iDestruct (big_sepM_lookup_acc _ _ r v with "Hρv") as "(H & Hclose)"; eauto.
 
@@ -1568,6 +1628,19 @@ Section pstore_G.
       split_and!; eauto.
     - iApply "Hclose"; iSteps.
     }
+  Qed.
+
+  Lemma lwt_set G ρg ys root newroot gen r x :
+    newroot ∉ dom G ->
+    lwt_inv G ρg ys ->
+    lwt_inv (<[newroot:=gen]> G) (<[r:=gen]> ρg) ((newroot, (r,x), root) :: ys).
+  Proof.
+    intros Hne E r' n Hn.
+    simpl in Hn.
+    case_decide; first subst r'.
+    { inversion Hn. subst. exists gen. rewrite !lookup_insert //. }
+    { apply E in Hn. destruct Hn as (x'&HG&?).
+      exists x'. rewrite !lookup_insert_ne //. intros ->. apply Hne. apply elem_of_dom. naive_solver. }
   Qed.
 
   Lemma pstore_set_spec t σ r v :
@@ -1622,12 +1695,14 @@ Section pstore_G.
     iModIntro.
 
     set rdiff := (r, (old, refgen)).
+    destruct Hinv as [X1 X2 X3 X4 X5].
+    destruct X4 as (ρ&X41&X42&X43).
 
     iExists (* r0, root, orig, gen: *) t0, newroot, orig, gen,
             (* ρv, ρg: *) (<[r:=v]>ρv), (<[r:=gen]>ρg),
             (* g, h: *)   ({[(root, rdiff, newroot)]} ∪ g),
                           ({[(newroot, rdiff, root)]} ∪ h),
-            (* M, C, G: *) (<[newroot:=<[r:=v]> ρv]>M), C, (<[newroot:=gen]>G).
+            (* M, C, G: *) (<[newroot:=<[r:=(v,gen)]> ρ]>M), C, (<[newroot:=gen]>G).
 
     rewrite big_sepS_union.
     { apply disjoint_singleton_l. intros ?. apply Hnewroot.
@@ -1637,12 +1712,12 @@ Section pstore_G.
     iDestruct "HC" as "[% (%Hsnap&?&?)]".
     { iSplitR; [ iPureIntro; split_and!; first done | eauto ].
     - (* store_inv *)
-      destruct Hinv as [X1 X2 X3 X4 X5].
       constructor.
       { rewrite dom_insert_L vertices_union vertices_singleton //. set_solver. }
       { set_solver. }
       { apply gmap_included_insert. done. }
-      { rewrite lookup_insert //. }
+      { eexists. rewrite lookup_insert X42 X43. split_and !; try done.
+        all:rewrite fmap_insert //. }
       { intros l1 ds l2 σ1 σ2 Hreach.
         destruct_decide (decide (newroot = l1)).
         { subst. rewrite lookup_insert. inversion_clear 1.
@@ -1657,8 +1732,11 @@ Section pstore_G.
           apply path_add_inv_r in Hreach; try done.
           destruct Hreach as [(->&->)|(ds'&->&Hreach)].
           { congruence. }
-          specialize (X5 _ _ _ _ _ Hreach E1 X4).
-          rewrite fmap_app apply_diffl_snoc insert_insert insert_id //. }
+          specialize (X5 _ _ _ _ _ Hreach E1 X41).
+          rewrite fmap_app apply_diffl_snoc insert_insert insert_id //.
+          rewrite lookup_fmap in Hρr.
+          rewrite lookup_fmap in Hrefgen . destruct (ρ !! r) as [(?,?)|] eqn:E; try done.
+          rewrite E. simpl in *. naive_solver. }
         { rewrite lookup_insert_ne //. intros. eapply X5; eauto.
           apply path_cycle_end_inv_aux in Hreach; eauto. } }
     - (* topology_inv *)
@@ -1696,7 +1774,7 @@ Section pstore_G.
         }
       }
     - (* history_inv *)
-      destruct Hist as (xs & ys & Hpath & Hmirror & Hhisto).
+      destruct Hist as (xs & ys & Hpath & Hmirror & Hlwt & Hhisto).
       exists (xs ++ [(root, rdiff, newroot)]).
       exists ((newroot, rdiff, root) :: ys).
       { split_and!.
@@ -1708,6 +1786,7 @@ Section pstore_G.
           apply mirror_symm.
           assumption.
         }
+      - apply lwt_set; eauto. set_solver.
       - rewrite Hhisto.
         unfold undo_graph.
         rewrite list_to_set_cons !list_to_set_app_L. simpl.
@@ -1731,15 +1810,17 @@ Section pstore_G.
         set_solver.
       }
     - (* coherent *)
-      destruct Hcoh as [X1 X2].
-      { constructor.
-      - intros l ?. destruct_decide (decide (l=newroot)).
-        { subst. rewrite lookup_insert. inversion 1. done. }
-        rewrite lookup_insert_ne //. intros HM.
-        apply X1 in HM. rewrite dom_insert_lookup_L //.
-      - intros ?. set_solver.
-      - set_solver.
-      }
+      destruct Hcoh as [Z1 Z2 ?].
+      constructor.
+      { intros l ?. destruct_decide (decide (l=newroot)).
+        { subst. rewrite lookup_insert. inversion 1. subst.
+          rewrite dom_insert_L. set_solver. }
+        { rewrite lookup_insert_ne //. intros HM.
+          apply Z1 in HM. rewrite dom_insert_lookup_L //. } }
+      { intros ????. rewrite dom_insert_L. clear X1 X2 X3.
+        rewrite /edge !elem_of_union.
+        intros [|]; first set_solver. right. eapply Z2. done. }
+      { set_solver. }
     - (* rooted_dag *)
       eauto using rooted_dag_add.
     - (* gen orig *)
@@ -1755,8 +1836,6 @@ Section pstore_G.
           destruct (Hsnap newroot σ' nrgen HnrC) as (σ'', (H', _)).
           eexists; eauto.
         }
-        destruct Hinv.
-        erewrite -> si1M0 in HnrM.
         set_solver.
       }
       { constructor.
@@ -1777,7 +1856,7 @@ Section pstore_G.
         - assert (forall n, n ∈ vertices h -> newroot ≠ n) as Hnotnr.
           {
             intros n Hn Heq; subst n.
-            rewrite -(history_vertices g root h orig) in Hn; eauto.
+            erewrite <- (history_vertices g) in Hn; eauto.
           }
           rewrite lookup_insert_ne; first (apply Hnotnr; eauto; eapply right_vertex; eauto).
           rewrite lookup_insert_ne in Hgk; first (apply Hnotnr; eauto; eapply left_vertex; eauto).
@@ -1799,14 +1878,56 @@ Section pstore_G.
       unfold snapshot_inv. destruct HC as (?&HC&?&?).
       assert (r0 ≠ newroot) as Hneqr0nr.
       { intro Hr0r.
-        subst. destruct Hinv as [X1 X2 X3].
+        subst.
         assert (newroot ∉ dom M) as F by set_solver. apply F. by eapply elem_of_dom. }
       rewrite lookup_insert_ne //.
-      exists x.
-      split_and!; eauto; [].
+      exists x0.
+      split_and!; eauto.
       unfold gen_succ_rel.
       rewrite lookup_insert_ne //.
     }
+  Qed.
+
+  Definition restrict `{Countable K} {V} (x:gset K) (m:gmap K V) :=
+    map_filter (fun '(k,_) => k ∈ x) _ m.
+
+  Lemma lookup_restrict `{Countable K} {V} (x:gset K) (m:gmap K V) (k:K) :
+    restrict x m !! k = if (decide (k ∈ x)) then m !! k else None.
+  Proof.
+    rewrite /restrict map_lookup_filter.
+    destruct (m !! k) eqn:E; try easy; simpl.
+    { rewrite option_guard_decide //. }
+    { by case_decide. }
+  Qed.
+
+  Lemma restrict_included_dom `{Countable K} {V} (ρ ρ':gmap K V) :
+    ρ ⊆ ρ' ->
+    restrict (dom ρ) ρ' = ρ.
+  Proof.
+    intros Hd. apply map_eq. intros k.
+    rewrite lookup_restrict. case_decide as Hk.
+    { apply elem_of_dom in Hk. destruct Hk as (?&Hk).
+      rewrite Hk.
+      eapply lookup_weaken in Hk; try done. }
+    { symmetry. by apply not_elem_of_dom. }
+  Qed.
+
+  Lemma restrict_included `{Countable K} {V} (x:gset K) (m:gmap K V) :
+    restrict x m ⊆ m.
+  Proof.
+    apply map_subseteq_spec. intros k v.
+    rewrite lookup_restrict. case_decide; naive_solver.
+  Qed.
+
+  Lemma fmap_restrict `{Countable K} {V1 V2} (f:V1 -> V2) x (m:gmap K V1) :
+    f <$> restrict x m = restrict x (f <$> m).
+  Proof.
+    apply map_eq.
+    rewrite /restrict. intros k.
+    rewrite lookup_fmap !map_lookup_filter !lookup_fmap.
+    destruct (m !! k) eqn:E; simpl; last done.
+    rewrite !option_guard_bool_decide.
+    by case_bool_decide.
   Qed.
 
   Lemma pstore_capture_spec t σ :
@@ -1824,12 +1945,17 @@ Section pstore_G.
     wp_rec.
     wp_load. wp_store. wp_load. iStep 5.
 
-    iDestruct "HC" as "[% (%Hsnap & Hmeta & HC)]".
-    iMod (mono_set_insert' (root, σ, gen) with "HC") as "(HC&Hsnap)".
+    destruct (si3 _ _ _ _ _ _ _ Hinv) as (ρ&T1&T2&T3).
+    iDestruct "HC" as "[% (%Hsnap & #Hmeta & HC)]".
+    iMod (mono_set_insert' (root, (restrict (dom σ) ρ), gen) with "HC") as "(HC&Hsnap)".
     iModIntro.
-    iSplit. 2:iSteps.
+    iSplit; last first.
+    { unfold pstore_snapshot. iExists _,t0,root,gen. iFrame "Hmeta".
+      iSplitR; first done. iExists _. iFrame.
+      iPureIntro. destruct Hinv.
+      rewrite fmap_restrict -T2 restrict_included_dom //. }
 
-    set C' : snapshots_model := {[(root, σ, gen)]} ∪ C.
+    set C' : snapshots_model := {[(root, (restrict (dom σ) ρ), gen)]} ∪ C.
 
     assert (gen_succ_rel C' G (1 + gen) root) as HgenC'root. {
       destruct Hglobgen as [Hglobgen1 Hglobgen2].
@@ -1845,10 +1971,33 @@ Section pstore_G.
     iExists (* r0, root, orig, gen: *) t0, root, orig, (1+gen),
             (* ρv, ρg: *) _, _,
             (* g, h: *)   _, _,
-            (* M, C, G: *) _, C', _.
-
-    { iSteps; iPureIntro.
-
+            (* M, C, G: *) M, C', G.
+    iSplitR; last first.
+    { iFrame. iSplitL "Hgen"; first iSteps. iExists _. iFrame "#∗".
+      iPureIntro.
+      (* snapshots_inv M C' G *)
+      intros snaproot ? ? HC. rewrite elem_of_union elem_of_singleton in HC.
+      { destruct HC as [HC|HC].
+      - inversion HC. subst. destruct Hinv.
+        destruct Hglobgen as [Hglobgen1 Hglobgen2].
+        eexists. split_and!; eauto using restrict_included.
+      - destruct (Hsnap snaproot x snap_gen) as (σ' & HMr' & Hσ' & Hsnapgen); eauto.
+        exists σ'; split_and!; eauto.
+        unfold gen_succ_rel.
+        unfold gen_succ_rel in Hsnapgen.
+        destruct (G !! snaproot) as [ gsnaproot | ]; eauto.
+        assert (captured C snaproot <-> captured C' snaproot) as CAPequiv. {
+          destruct_decide (decide (root = snaproot)).
+          - subst root.
+            unfold captured; set_solver.
+          - unfold C'.
+            unfold captured; set_solver.
+        }
+        { destruct_decide (decide (captured C snaproot)) as CAP; rewrite CAPequiv in CAP.
+        - rewrite decide_True //.
+        - rewrite decide_False //.
+        } } }
+    { iPureIntro. split_and !; try done.
     - (* topology_inv g M C' *)
       intros l Hl_dom Hl_cap.
       assert (not (captured C l)) as CAPl
@@ -1856,11 +2005,12 @@ Section pstore_G.
       apply (Htopo l Hl_dom CAPl).
 
     (* global_gen_inv. *)
-    - (* gen_succ_rel between nodes (k, l) *)
+    - split; try done.
+      + (* gen_succ_rel between nodes (k, l) *)
       destruct Hglobgen as (Hglobgen1 & Hglobgen2).
       intros k gk l Hkl Hgk.
       unfold gen_succ_rel.
-      pose proof (history_vertices_have_a_generation M C G g root σ ρv h orig ltac:(eauto) ltac:(eauto))
+      pose proof (history_vertices_have_a_generation M C G _ g root σ ρv h orig ltac:(eauto) ltac:(eauto))
         as generation_finder.
       destruct (generation_finder l) as (gl & Hgl); first (destruct Hkl; eapply right_vertex; eauto).
       rewrite Hgl.
@@ -1897,29 +2047,6 @@ Section pstore_G.
         - rewrite decide_False; eauto.
         }
       }
-
-    - (* snapshots_inv M C' G *)
-      intros snaproot ? ? HC. rewrite elem_of_union elem_of_singleton in HC.
-      { destruct HC as [HC|HC].
-      - inversion HC. subst. destruct Hinv.
-        destruct Hglobgen as [Hglobgen1 Hglobgen2].
-        exists ρv; split_and!; eauto.
-      - destruct (Hsnap snaproot σ0 snap_gen) as (σ' & HMr' & Hσ' & Hsnapgen); eauto.
-        exists σ'; split_and!; eauto.
-        unfold gen_succ_rel.
-        unfold gen_succ_rel in Hsnapgen.
-        destruct (G !! snaproot) as [ gsnaproot | ]; eauto.
-        assert (captured C snaproot <-> captured C' snaproot) as CAPequiv. {
-          destruct_decide (decide (root = snaproot)).
-          - subst root.
-            unfold captured; set_solver.
-          - unfold C'.
-            unfold captured; set_solver.
-        }
-        { destruct_decide (decide (captured C snaproot)) as CAP; rewrite CAPequiv in CAP.
-        - rewrite decide_True //.
-        - rewrite decide_False //.
-        }
     }
   Admitted.
 
@@ -1996,20 +2123,19 @@ Section pstore_G.
 
   (* [undo xs ys ρ] asserts [mirror xs ys] and that [σ = apply_diffl (proj2 <$> ys ++ xs) σ],
      ie, ys undo the changes of xs *)
-  (* FIXME: this should be changed to take generations of ρg into account as well. *)
   Inductive undo :
-    list ref_diff_edge -> list ref_diff_edge -> gmap location val -> Prop :=
+    list ref_diff_edge -> list ref_diff_edge -> gmap location (val * generation) -> Prop :=
   | undo_nil :
-    forall σ, undo [] [] σ
+    forall x, undo [] [] x
   | undo_cons :
-    forall σ j r v gen v' gen' k xs ys,
-      σ !! r = Some v' ->
-      undo xs ys (<[r:=v]> σ) ->
-      undo (xs++[(j,(r,(v,gen)),k)]) ((k,(r,(v',gen')),j)::ys) σ.
+    forall x j r (v v':(val * generation)) k xs ys,
+      x !! r = Some v' ->
+      undo xs ys (<[r:=v]> x) ->
+      undo (xs++[(j,(r,v),k)]) ((k,(r,v'),j)::ys) x.
 
-  Lemma use_undo xs ys σ :
-    undo xs ys σ ->
-    σ = apply_diffl (vchange_of_edge <$> ys ++ xs) σ.
+  Lemma use_undo xs ys x :
+    undo xs ys x ->
+    x = apply_diffl (change_of_edge <$> ys ++ xs) x.
   Proof.
     induction 1.
     { done. }
@@ -2025,9 +2151,10 @@ Section pstore_G.
     induction 1; eauto using mirror_cons,mirror_nil.
   Qed.
 
-  Lemma pstore_revert_spec_aux g g1 j t g2 xs k v0 ρv ρg :
+  Lemma pstore_revert_spec_aux g g1 j t g2 xs k v0 ρv ρg ρ :
     lst_model' t (fsts (rev xs)) ->
     dom ρv = dom ρg ->
+    ρv = fst <$> ρ -> ρg = snd <$> ρ ->
     references_in g2 (dom ρv) ->
     g2 = list_to_set xs ->
     acyclic g ->
@@ -2044,15 +2171,15 @@ Section pstore_G.
     {{{
       RET ();
       ∃ ys,
-      ⌜undo xs ys ρv⌝ ∗
+      ⌜undo xs ys ρ⌝ ∗
       j ↦ §Root ∗
       diff_nodes (g1 ∪ list_to_set ys) ∗
       ref_values (apply_diffl (vchange_of_edge <$> xs) ρv) ∗
       ref_generations (apply_diffl (gchange_of_edge <$> xs) ρg)
     }}}.
   Proof.
-    iIntros (-> Hdoms Hlocs Hg Hacy Hsub Hpath Φ) "(Hv & Hg1 & Hg2 & Hρv & Hρg) HΦ".
-    iInduction xs as [ | ((l,(r,diff)),l') ] "IH" using rev_ind forall (ρv ρg Hdoms v0 j k g1 g2 Hpath Hg Hlocs Hacy Hsub).
+    iIntros (-> Hdoms E1 E2 Hlocs Hg Hacy Hsub Hpath Φ) "(Hv & Hg1 & Hg2 & Hρv & Hρg) HΦ".
+    iInduction xs as [ | ((l,(r,diff)),l') ] "IH" using rev_ind forall (ρ ρv ρg Hdoms E1 E2 v0 j k g1 g2 Hpath Hg Hlocs Hacy Hsub).
     { wp_rec. simpl.
       iStep 4. iModIntro.
       inversion Hpath. subst. wp_store. iModIntro.
@@ -2091,8 +2218,9 @@ Section pstore_G.
 
       iSpecialize ("Hρv" with "[$]").
       iSpecialize ("Hρg" with "[$]").
-      iSpecialize ("IH" $! (<[r:=refv]> ρv) (<[r:=refgen]> ρg) with "[%][%//][%//][%][%//][%][$] Hg1 Hg2 [$][$]").
-      { do 2 rewrite dom_insert_L. set_solver. }
+      iSpecialize ("IH" $! (<[r:=(refv,refgen)]> ρ) (<[r:=refv]> ρv) (<[r:=refgen]> ρg) with "[%][%][%][%//][%//][%][%//][%][$] Hg1 Hg2 [$][$]").
+      { rewrite !dom_insert_L. set_solver. }
+      1-2:rewrite fmap_insert //; set_solver.
       { rewrite dom_insert_L. intros j' r' w' l'.
         specialize (Hlocs j' r' w' l'). set_solver. }
       { set_solver. }
@@ -2102,8 +2230,11 @@ Section pstore_G.
       iIntros "[%ys (%Hundo&?&?&?&?)]". iApply "HΦ".
       iExists ((k,(r,(v,gen)),l)::ys). iFrame.
       iSplitR.
-      { iPureIntro. eauto using undo_cons. }
-      rewrite list_to_set_cons.
+      { iPureIntro. apply undo_cons; last done.
+        { rewrite E1 lookup_fmap in Hv. rewrite E2 lookup_fmap in Hgen.
+          destruct (ρ !! r) as [(?,?)|] eqn:E; rewrite E in Hv,Hgen.
+          all:naive_solver. } }
+        rewrite list_to_set_cons.
       iAssert ⌜(k, (r, (v,gen)), l) ∉ g1 ∪ list_to_set ys⌝%I as "%".
       { iIntros (?). iDestruct (big_sepS_elem_of with "[$]") as "?"; first done.
         iDestruct (pointsto_ne k k with "[$][$]") as "%". congruence. }
@@ -2113,9 +2244,10 @@ Section pstore_G.
     }
   Qed.
 
-  Lemma pstore_revert_spec j t g xs k v0 ρv ρg :
+  Lemma pstore_revert_spec j t g xs k v0 ρv ρg ρ :
     lst_model' t (fsts (rev xs)) ->
     dom ρv = dom ρg ->
+    ρv = fst <$> ρ -> ρg = snd <$> ρ ->
     references_in g (dom ρv) ->
     g = list_to_set xs ->
     acyclic g ->
@@ -2130,15 +2262,15 @@ Section pstore_G.
     {{{
       RET ();
       ∃ ys,
-      ⌜undo xs ys ρv⌝ ∗
+      ⌜undo xs ys ρ⌝ ∗
       j ↦ §Root ∗
       diff_nodes (list_to_set ys) ∗
       ref_values (apply_diffl (vchange_of_edge <$> xs) ρv) ∗
       ref_generations (apply_diffl (gchange_of_edge <$> xs) ρg)
     }}}.
   Proof.
-    iIntros (Hxs Hdom Hgrefs Dg Hacy Pxs Φ) "(Hk & Hnodes & Hρv & Hρg) HΦ".
-    iApply (pstore_revert_spec_aux g ∅ j t g xs k v0 ρv ρg Hxs Hdom Hgrefs Dg Hacy ltac:(set_solver) Pxs with "[-HΦ]"); try done.
+    iIntros (Hxs Hdom E1 E2 Hgrefs Dg Hacy Pxs Φ) "(Hk & Hnodes & Hρv & Hρg) HΦ".
+    iApply (pstore_revert_spec_aux g ∅ j t g xs k v0 ρv ρg _ Hxs Hdom E1 E2 Hgrefs Dg Hacy ltac:(set_solver) Pxs with "[-HΦ]"); try done.
     { rewrite big_sepS_empty. iFrame. }
     { iModIntro. iIntros "[% ?]". iApply "HΦ". iExists _. rewrite left_id_L //. }
   Qed.
@@ -2150,9 +2282,10 @@ Section pstore_G.
     rewrite IHxs /fsts fmap_app //.
   Qed.
 
-  Lemma pstore_reroot_spec j (xs:list ref_diff_edge) k g ρv ρg :
+  Lemma pstore_reroot_spec j (xs:list ref_diff_edge) k g ρv ρg ρ :
     references_in g (dom ρv) ->
     dom ρv = dom ρg ->
+    ρv = fst <$> ρ -> ρg = snd <$> ρ ->
     g = list_to_set xs ->
     acyclic g ->
     path g j xs k ->
@@ -2166,14 +2299,14 @@ Section pstore_G.
     {{{
       RET ();
       ∃ ys,
-      ⌜undo xs ys ρv⌝ ∗
+      ⌜undo xs ys ρ⌝ ∗
       j ↦ §Root ∗
       diff_nodes (list_to_set ys) ∗
       ref_values (apply_diffl (vchange_of_edge <$> xs) ρv) ∗
       ref_generations (apply_diffl (gchange_of_edge <$> xs) ρg)
     }}}.
   Proof.
-    iIntros (Hgdom Hdoms Dg Hacy Pxs Φ) "(Hk & Hnodes & Hρv & Hρg) HΦ".
+    iIntros (Hgdom Hdoms ?? Dg Hacy Pxs Φ) "(Hk & Hnodes & Hρv & Hρg) HΦ".
     wp_rec. wp_apply (pstore_collect_spec with "[$]"); first done.
     iIntros (t) "(Hk & Hnodes & %Ht)". rewrite {}Ht.
     wp_smart_apply (pstore_revert_spec with "[-HΦ]"); try done; first rewrite rev_fsts //.
@@ -2188,15 +2321,15 @@ Section pstore_G.
     intros Z ? a b c d ?. eapply (Z a b c d). set_solver.
   Qed.
 
-  Lemma undo_same_fst_label xs ys j r w k σ :
-    undo xs ys σ ->
+  Lemma undo_same_fst_label xs ys j r w k x :
+    undo xs ys x ->
     (j, (r, w), k) ∈ (list_to_set ys : gset ref_diff_edge) ->
     r ∈ (list_to_set (proj2 <$> xs).*1 : gset ref_loc).
   Proof.
-    revert xs σ. induction ys as [|(?,?)]; first set_solver.
-    intros xs σ. inversion 1. subst.
+    revert xs x. induction ys as [|]; first set_solver.
+    intros xs x. inversion 1. subst.
     simpl. rewrite !fmap_app list_to_set_app_L. simpl in *. subst.
-    destruct_decide (decide ((j, (r, w), k) = (k0, (r0, (v', gen')), n))) as Heq.
+    destruct_decide (decide ((j, (r,w) , k) = (k0, (r0, v'), j0))) as Heq.
     { inversion Heq. subst. intros _. set_solver. }
     intros ?. simpl. apply elem_of_union. left. eapply IHys; first done. set_solver.
   Qed.
@@ -2496,11 +2629,11 @@ Section pstore_G.
       eapply ti2 in Hcycle; eauto. subst. destruct x0; simpl in *; lia. }
   Qed.
 
-  Lemma undo_app_inv xs ys1 ys2 σ :
-    undo xs (ys1 ++ ys2) σ ->
-    exists xs1 xs2, xs = xs2 ++ xs1 /\ undo xs2 ys2 (apply_diffl (vchange_of_edge <$> xs1) σ) /\ undo xs1 ys1 σ.
+  Lemma undo_app_inv xs ys1 ys2 ρ :
+    undo xs (ys1 ++ ys2) ρ ->
+    exists xs1 xs2, xs = xs2 ++ xs1 /\ undo xs2 ys2 (apply_diffl (change_of_edge <$> xs1) ρ) /\ undo xs1 ys1 ρ.
   Proof.
-    revert xs ys2 σ. induction ys1; intros xs ys2 σ Hundo.
+    revert xs ys2 ρ. induction ys1; intros xs ys2 ρ Hundo.
     { exists nil,xs. rewrite right_id_L. split; eauto using undo_nil. }
     rewrite -app_comm_cons in Hundo. inversion Hundo. subst.
     apply IHys1 in H4. destruct H4 as (xs1&xs2&->&?&?).
@@ -2566,7 +2699,7 @@ Section pstore_G.
     { rewrite Hdom -Hvg elem_of_union. left. apply elem_of_vertices.
       inversion X2. set_solver. }
     apply elem_of_dom in Ha'. destruct Ha' as (σ',Ea').
-    assert (σ1 = (apply_diffl (vchange_of_edge <$> l1) σ')).
+    assert (σ1 = (apply_diffl (change_of_edge <$> l1) σ')).
     { eapply path_weak in X1.
     - eapply (Hinv _ _ _ _ _ X1 E1 Ea').
     - set_solver.
@@ -2786,18 +2919,18 @@ Section pstore_G.
       apply Hincl; done.
   Qed.
 
-  Lemma undo_preserves_histo g1 n1 h1 orig n2 xs xsm :
+  Lemma undo_preserves_histo g1 G ρg n1 h1 orig n2 xs xsm :
     acyclic g1 ->
     unaliased g1 ->
-    history_inv g1 n1 h1 orig ->
+    history_inv g1 G ρg n1 h1 orig ->
     path g1 n2 xs n1 ->
     mirror xs xsm ->
     exists h2,
       graph_iso h1 h2
       /\
-      history_inv (undo_graph g1 xs xsm) n2 h2 orig.
+      history_inv (undo_graph g1 xs xsm) G (apply_diffl (gchange_of_edge <$> xs) ρg) n2 h2 orig.
   Proof.
-    intros Hacyclic Hunalias (ys & ysm & Hys & Hysysm & Hhisto) Hxs Hxsxsm.
+    intros Hacyclic Hunalias (ys & ysm & Hys & Hysysm & Hlwt & Hhisto) Hxs Hxsxsm.
     unfold history_inv.
     set g2 := undo_graph g1 xs xsm.
 
@@ -2924,6 +3057,8 @@ Section pstore_G.
       }
     - apply mirror_app; eauto.
       apply mirror_symm; eauto.
+    - intros r n Hn.
+      admit.
     - rewrite Dh2.
       rewrite Dg2.
       unfold undo_graph.
@@ -2952,20 +3087,51 @@ Section pstore_G.
     }
   Admitted.
 
-  Lemma use_snapshots γ (t0:location) M C G root σ gen :
+  Lemma simplify_diffl_changes_fst xs ρv ρ :
+    ρv = fst <$> ρ ->
+    fst <$> apply_diffl (change_of_edge <$> xs) ρ =
+    apply_diffl (vchange_of_edge <$> xs) ρv.
+  Proof.
+    intros ->. revert ρ. induction xs as [|(?,?)]; intros ?.
+    { naive_solver. }
+    { simpl. destruct p as (?,(?,?)). destruct r0.
+      rewrite fmap_insert. f_equal. done. }
+  Qed.
+
+  Lemma simplify_diffl_changes_snd xs ρg ρ :
+    ρg = snd <$> ρ ->
+    snd <$> apply_diffl (change_of_edge <$> xs) ρ =
+    apply_diffl (gchange_of_edge <$> xs) ρg.
+  Proof.
+    intros ->. revert ρ. induction xs as [|(?,?)]; intros ?.
+    { naive_solver. }
+    { simpl. destruct p as (?,(?,?)). destruct r0.
+      rewrite fmap_insert. f_equal. done. }
+  Qed.
+
+  Lemma use_snapshots γ (t0:location) M C G root σ  gen :
     meta t0 nroot γ -∗
     snapshots t0 M C G -∗
     pstore_map_elem γ root σ gen -∗
-    ⌜(root, σ, gen) ∈ C /\ snapshot_inv M C G root σ gen⌝.
+    ∃ (ρ:mapping), ⌜σ = fst <$> ρ /\ (root, ρ, gen) ∈ C /\ snapshot_inv M C G root ρ gen⌝.
   Proof.
-    iIntros "Hmeta [%γ' (%Hsnap&Hmeta'&HC)] Helem".
+    iIntros "Hmeta [%γ' (%Hsnap&Hmeta'&HC)] [% (%&?)]".
     iDestruct (meta_agree with "Hmeta' Hmeta") as "->".
     iDestruct (mono_set_elem_valid with "[$][$]") as "%Hrs".
 
-    iPureIntro.
-    destruct Hsnap with root σ gen as (σ', (H1 & H2 & H3)); [ auto | ].
+    iPureIntro. exists x. split_and !; try done.
+    destruct Hsnap with root x gen as (x', (H1 & H2 & H3)); [ auto | ].
     unfold captured.
     eexists; eauto.
+  Qed.
+
+  Lemma fmap_map_included `{Countable K} {V1 V2} (f:V1 -> V2) (m1 m2:gmap K V1):
+    m1 ⊆ m2 ->
+    (f <$> m1 : gmap _ _) ⊆ (f <$> m2 : gmap _ _ ).
+  Proof.
+    intros Hincl k. specialize (Hincl k).
+    rewrite !lookup_fmap.
+    destruct (m1!!k), (m2!!k); naive_solver.
   Qed.
 
   Lemma pstore_restore_spec t σ s σ' :
@@ -2985,8 +3151,7 @@ Section pstore_G.
     iDestruct "Hsnap" as "[%γ [%t0' [%snaproot [%snap_gen ((%Eq&->)&Hmeta'&Hsnap)]]]]".
     inversion Eq. subst t0'. clear Eq.
 
-    iDestruct (use_snapshots with "[$][$][$]") as %(HC & σ0 & HMsnaproot &Hincl & Hsnapgen).
-
+    iDestruct (use_snapshots with "[$][$][$]") as %(ρ0 &?&?&?& HMsnaproot &Hincl & Hsnapgen).
     wp_rec. iStep 20.
 
     iDestruct (extract_unaliased with "Hg") as "%".
@@ -2994,7 +3159,10 @@ Section pstore_G.
     { subst.
       wp_load. iStep 4. iModIntro.
       iExists _,_,_,_,_,_,_,_,_,_,_. iFrame. iPureIntro. split_and!; eauto.
-      { destruct Hinv as [X1 X2 X3 X4]. constructor; eauto. naive_solver. } }
+      { destruct Hinv as [X1 X2 X3 X4]. constructor; eauto.
+        destruct X4 as (?&?&?&?). subst.
+        rewrite H1 in HMsnaproot. inversion HMsnaproot. subst.
+        apply fmap_map_included. done. } }
 
     assert (snaproot ∈ vertices g) as Hsnaproot.
     { destruct Hinv. apply elem_of_dom_2 in HMsnaproot. set_solver. }
@@ -3014,10 +3182,13 @@ Section pstore_G.
     rewrite (union_difference_L (list_to_set xs) g) //.
 
     iDestruct (big_sepS_union with "Hg") as "(Hxs&Hg)"; first set_solver.
+
+    destruct (si3 _ _ _ _ _ _ _ Hinv) as (ρ&?&?&?).
     wp_apply (pstore_reroot_spec with "[Hroot Hxs Hρv Hρg]").
-    5:{ eapply path_restrict. done. }
-    3:done.
+    7:{ eapply path_restrict. done. }
+    5:done.
     { destruct Hcoh as [_ X]. eapply references_in_weak; naive_solver. }
+    2,3:done.
     { destruct Hcoh; eauto. }
     { eapply acyclic_weak; eauto using ti2. }
     { subst xs. iFrame. }
@@ -3041,24 +3212,23 @@ Section pstore_G.
       simpl.
       iDestruct (pointsto_ne snaproot snaproot with "[$][$]") as "%". congruence. }
 
-    assert (exists h', graph_iso h h' /\ history_inv g' snaproot h' orig) as (h' & Hiso & Hist').
+    eassert (exists h', graph_iso h h' /\ history_inv g' G _ snaproot h' orig) as (h' & Hiso & Hist').
     {
       destruct Hgraph.
-      unfold g'.
-      subst xs; eapply undo_preserves_histo; eauto.
+      unfold g'. subst xs; eapply undo_preserves_histo; eauto.
     }
 
     assert (vertices g' = vertices g) as Hvg.
     { apply mirror_vertices in Hmirror.
       rewrite vertices_union Hmirror -vertices_union -union_difference_L //. }
 
-    assert (σ0 = (apply_diffl (vchange_of_edge <$> xs) ρv)).
+    assert (x = (apply_diffl (change_of_edge <$> xs) ρ)).
     { destruct Hinv as [X1 X2 X3 X4]. subst xs. eauto. }
 
     assert (rooted_dag g' snaproot) as Hroot.
     { subst xs; eapply undo_preserves_rooted_dag; eauto.
     - intros k (d, Hk).
-      apply (H4 d k).
+      apply (H8 d k).
       unfold g'; assumption.
     }
 
@@ -3079,29 +3249,33 @@ Section pstore_G.
     1: iPureIntro; split_and!; try done.
 
     { (* store_inv *)
-      destruct Hinv as [X1 X2 X3 X4 X5]. constructor.
+      destruct Hinv as [X1 X2 X3 _ X5]. constructor.
       { rewrite X1 Hvg.
-        apply elem_of_dom_2 in X4, HMsnaproot.
+        apply elem_of_dom_2 in H4, HMsnaproot.
         apply path_ends_vertices in Hsnaproot.
         set_solver. }
       { set_solver. }
-      { set_solver. }
-      { set_solver. }
+      { transitivity (fst <$> x).
+        { apply fmap_map_included. done. }
+        erewrite <- simplify_diffl_changes_fst. 2:done. set_solver. }
+      { eexists. split_and !; try done.
+        { subst x. erewrite <- simplify_diffl_changes_fst. 2:done. set_solver. }
+        { subst x. erewrite <- simplify_diffl_changes_snd. 2:done. set_solver. } }
       { subst xs.
         intros. eapply undo_preserves_model; eauto.
-        intros k (d, Hk). apply (H4 d k). eauto. }
+        intros k (d, Hk). apply (H8 d k). eauto. }
     }
 
     { (* topology_inv *)
       subst; apply undo_preserves_topo with root; eauto.
       - destruct Hinv. eauto.
-      - unfold captured; eexists _, _; eapply HC.
+      - unfold captured; eexists _, _; eapply _.
     }
 
     { (* coherent *)
       destruct Hcoh as [X1 X2]. constructor.
-      { intros ???. rewrite dom_apply_diffl. apply X1 in H6.
-        eapply use_references_in in Hsnaproot. 2:done.
+      { intros ???. rewrite dom_apply_diffl. apply X1 in H10.
+        eapply use_references_in' in Hsnaproot. 2:done.
         set_solver.
       } {
         subst xs.
@@ -3131,6 +3305,8 @@ Section pstore_G.
       - (* gen_succ_rel between the snapshot generation and the snapshot root. *)
         apply Hsnapgen.
     }
+    Unshelve.
+    3:{ done. }
   Qed.
 End pstore_.
 
