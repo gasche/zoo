@@ -852,7 +852,7 @@ Section graph.
         {
           unfold g'; unfold undo_graph.
           intros elem Helem.
-          repeat rewrite list_to_set_app.
+          rewrite !list_to_set_app_L.
           repeat (apply elem_of_union; left); done.
         }
         apply path_restrict with (undo_graph g (ys1 ++ ys2) (ys2m ++ ys1m)); done.
@@ -862,7 +862,7 @@ Section graph.
           {
             unfold g'; unfold undo_graph.
             intros elem Helem.
-            repeat rewrite list_to_set_app.
+            rewrite !list_to_set_app_L.
             do 2 (apply elem_of_union; left).
             apply elem_of_union; right.
             done.
@@ -2637,7 +2637,7 @@ Section pstore_G.
        rewrite elem_of_union in Hkl.
        { destruct Hkl as [ Hkl | Hkl ].
        - eexists.
-         rewrite list_to_set_app.
+         rewrite list_to_set_app_L.
          rewrite elem_of_union.
          rewrite list_to_set_singleton.
          right.
@@ -2651,7 +2651,7 @@ Section pstore_G.
              inversion Hpath2; subst.
              assumption.
            - exists d'; eauto.
-             rewrite list_to_set_app.
+             rewrite list_to_set_app_L.
              set_solver.
          }
        }
@@ -2882,8 +2882,7 @@ Section pstore_G.
 
     assert (g1 = grest ∪ (list_to_set ys' ∪ list_to_set suf ∪ list_to_set xs')) as Dg1.
     {
-      apply leibniz_equiv.
-      subst grest. rewrite difference_union. set_solver.
+      subst grest. rewrite difference_union_L. set_solver.
     }
     assert (h1 = grest ∪ (list_to_set ys'm ∪ list_to_set sufm ∪ list_to_set xs')) as Dh1 by set_solver.
     assert (g2 = grest ∪ (list_to_set ys' ∪ list_to_set sufm' ∪ list_to_set xs'm)) as Dg2 by set_solver.
