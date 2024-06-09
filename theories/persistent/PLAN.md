@@ -7,6 +7,7 @@
   ALEX: perhaps, leaving it for now.
 
 - extend `undo` with a correct update of the ρg in addition to the ρv.
+  ALEX: Don't know what you mean. Ignoring for now.
 
 - The map-model M returns a (ref_loc -> val) mapping for each
   node. Complement it with a new MG which returns

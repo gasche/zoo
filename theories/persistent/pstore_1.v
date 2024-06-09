@@ -922,6 +922,19 @@ Section mirror.
   Qed.
 End mirror.
 
+(* last write to *)
+Section lwt.
+  Context `{Countable A} `{Countable K} `{Countable V}.
+
+  (* xs is meant to be a path from root to orig *)
+  Fixpoint lwt (xs:list (A*(K*V)*A)) (r:K) :=
+    match xs with
+    | [] => None
+    | (n,(k,_),_)::xs =>
+        if (decide (k=r)) then Some n else lwt xs r end.
+
+End lwt.
+
 (* ------------------------------------------------------------------------ *)
 (* Define apply_diffl, a function applying a list of diff. *)
 
@@ -1124,30 +1137,36 @@ Section pstore_G.
     exact (Htop k Hk).
   Qed.
 
-  Definition history_inv g root h orig :=
+  Definition lwt_inv G ρg (ys: list ref_diff_edge) :=
+    forall r n,
+      lwt ys r = Some n ->
+      exists x, G !! n = Some x /\ ρg !! r = Some x.
+
+  Definition history_inv g G ρg root h orig :=
     exists xs ys,
       path g orig xs root /\
       mirror xs ys /\
+      lwt_inv G ρg ys /\
       h = undo_graph g xs ys.
 
-  Lemma history_vertices g root h orig :
-    history_inv g root h orig ->
+  Lemma history_vertices g G ρg root h orig :
+    history_inv g G ρg root h orig ->
     vertices g = vertices h.
   Proof.
-    intros (xs & ys & Pxs & Mxsys & Hundo).
+    intros (xs & ys & Pxs & Mxsys & _ & Hundo).
     replace h with (undo_graph g xs ys) by (by apply leibniz_equiv).
     apply undo_mirror_vertices; eauto.
     eapply path_all_in; eauto.
   Qed.
 
-  Lemma history_vertices_have_a_generation M C G g root σ ρv h orig :
+  Lemma history_vertices_have_a_generation M C G ρg g root σ ρv h orig :
     store_inv M G g root σ ρv ->
-    history_inv g root h orig ->
+    history_inv g G ρg root h orig ->
     forall k, k ∈ vertices h ->
     exists kgen, G !! k = Some kgen.
   Proof.
     intros Hstore_inv Histo_inv k Hk.
-    rewrite -(history_vertices g root h orig) in Hk; eauto.
+    rewrite -(history_vertices g G ρg root h orig) in Hk; eauto.
     destruct Hstore_inv.
     assert (k ∈ dom G) as HkG by set_solver.
     eapply elem_of_dom; eauto.
@@ -1290,7 +1309,7 @@ Section pstore_G.
     ⌜t=#t0 /\
      store_inv M G g root σ ρv /\
      topology_inv g M C root /\
-     history_inv g root h orig /\
+     history_inv g G ρg root h orig /\
      coherent M ρv ρg g /\
      rooted_dag g root /\
      G !! orig = Some 0 /\
@@ -1338,6 +1357,10 @@ Section pstore_G.
     apply _.
   Qed.
 
+  Lemma lwt_inv_init root :
+    lwt_inv {[root := 0]} ∅ [].
+  Proof. done. Qed.
+
   Lemma pstore_create_spec :
     {{{ True }}}
       pstore_create ()
@@ -1380,7 +1403,7 @@ Section pstore_G.
     }
     { (* history_inv *)
       exists []. exists []. unfold undo_graph.
-      split_and!; eauto; constructor.
+      split_and!; eauto using lwt_inv_init; constructor.
     }
     { (* coherent *)
       constructor; eauto.
@@ -1438,6 +1461,17 @@ Section pstore_G.
     intros (x & Hx).
     destruct (use_r_in_dom m1 m2 r x Hdom) as (y & Hy); eauto.
     naive_solver.
+  Qed.
+
+  Lemma lwt_inv_insert r G ρg ys :
+    ρg !! r = None ->
+    lwt_inv G ρg ys ->
+    lwt_inv G (<[r:=0]> ρg) ys.
+  Proof.
+    intros ? Hlwt l n Hn.
+    apply Hlwt in Hn. destruct Hn as (x&?&?).
+    exists x. split; first done. rewrite lookup_insert_ne //.
+    intros ->. naive_solver.
   Qed.
 
   Lemma pstore_ref_spec t σ v :
@@ -1501,6 +1535,9 @@ Section pstore_G.
       apply (topology_domM_transport g M).
       { set_solver. }
       { assumption. }
+    }
+    { destruct Hist as (xs&ys&?&?&?&?).
+      exists xs,ys; split_and!; eauto using lwt_inv_insert.
     }
     { (* coherent *)
       destruct Hcoh as [X1 X2].
@@ -1568,6 +1605,19 @@ Section pstore_G.
       split_and!; eauto.
     - iApply "Hclose"; iSteps.
     }
+  Qed.
+
+  Lemma lwt_set G ρg ys root newroot gen r x :
+    newroot ∉ dom G ->
+    lwt_inv G ρg ys ->
+    lwt_inv (<[newroot:=gen]> G) (<[r:=gen]> ρg) ((newroot, (r,x), root) :: ys).
+  Proof.
+    intros Hne E r' n Hn.
+    simpl in Hn.
+    case_decide; first subst r'.
+    { inversion Hn. subst. exists gen. rewrite !lookup_insert //. }
+    { apply E in Hn. destruct Hn as (x'&HG&?).
+      exists x'. rewrite !lookup_insert_ne //. intros ->. apply Hne. apply elem_of_dom. naive_solver. }
   Qed.
 
   Lemma pstore_set_spec t σ r v :
@@ -1696,7 +1746,7 @@ Section pstore_G.
         }
       }
     - (* history_inv *)
-      destruct Hist as (xs & ys & Hpath & Hmirror & Hhisto).
+      destruct Hist as (xs & ys & Hpath & Hmirror & Hlwt & Hhisto).
       exists (xs ++ [(root, rdiff, newroot)]).
       exists ((newroot, rdiff, root) :: ys).
       { split_and!.
@@ -1708,6 +1758,7 @@ Section pstore_G.
           apply mirror_symm.
           assumption.
         }
+      - apply lwt_set; eauto. destruct Hinv. set_solver.
       - rewrite Hhisto.
         unfold undo_graph.
         rewrite list_to_set_cons !list_to_set_app_L. simpl.
@@ -1777,7 +1828,7 @@ Section pstore_G.
         - assert (forall n, n ∈ vertices h -> newroot ≠ n) as Hnotnr.
           {
             intros n Hn Heq; subst n.
-            rewrite -(history_vertices g root h orig) in Hn; eauto.
+            erewrite <- (history_vertices g) in Hn; eauto.
           }
           rewrite lookup_insert_ne; first (apply Hnotnr; eauto; eapply right_vertex; eauto).
           rewrite lookup_insert_ne in Hgk; first (apply Hnotnr; eauto; eapply left_vertex; eauto).
@@ -1860,7 +1911,7 @@ Section pstore_G.
       destruct Hglobgen as (Hglobgen1 & Hglobgen2).
       intros k gk l Hkl Hgk.
       unfold gen_succ_rel.
-      pose proof (history_vertices_have_a_generation M C G g root σ ρv h orig ltac:(eauto) ltac:(eauto))
+      pose proof (history_vertices_have_a_generation M C G _ g root σ ρv h orig ltac:(eauto) ltac:(eauto))
         as generation_finder.
       destruct (generation_finder l) as (gl & Hgl); first (destruct Hkl; eapply right_vertex; eauto).
       rewrite Hgl.
@@ -2786,18 +2837,18 @@ Section pstore_G.
       apply Hincl; done.
   Qed.
 
-  Lemma undo_preserves_histo g1 n1 h1 orig n2 xs xsm :
+  Lemma undo_preserves_histo g1 G ρg n1 h1 orig n2 xs xsm :
     acyclic g1 ->
     unaliased g1 ->
-    history_inv g1 n1 h1 orig ->
+    history_inv g1 G ρg n1 h1 orig ->
     path g1 n2 xs n1 ->
     mirror xs xsm ->
     exists h2,
       graph_iso h1 h2
       /\
-      history_inv (undo_graph g1 xs xsm) n2 h2 orig.
+      history_inv (undo_graph g1 xs xsm) G (apply_diffl (gchange_of_edge <$> xs) ρg) n2 h2 orig.
   Proof.
-    intros Hacyclic Hunalias (ys & ysm & Hys & Hysysm & Hhisto) Hxs Hxsxsm.
+    intros Hacyclic Hunalias (ys & ysm & Hys & Hysysm & Hlwt & Hhisto) Hxs Hxsxsm.
     unfold history_inv.
     set g2 := undo_graph g1 xs xsm.
 
@@ -2924,6 +2975,8 @@ Section pstore_G.
       }
     - apply mirror_app; eauto.
       apply mirror_symm; eauto.
+    - intros r n Hn.
+      admit.
     - rewrite Dh2.
       rewrite Dg2.
       unfold undo_graph.
@@ -3041,11 +3094,10 @@ Section pstore_G.
       simpl.
       iDestruct (pointsto_ne snaproot snaproot with "[$][$]") as "%". congruence. }
 
-    assert (exists h', graph_iso h h' /\ history_inv g' snaproot h' orig) as (h' & Hiso & Hist').
+    eassert (exists h', graph_iso h h' /\ history_inv g' G _ snaproot h' orig) as (h' & Hiso & Hist').
     {
       destruct Hgraph.
-      unfold g'.
-      subst xs; eapply undo_preserves_histo; eauto.
+      unfold g'. subst xs; eapply undo_preserves_histo; eauto.
     }
 
     assert (vertices g' = vertices g) as Hvg.
