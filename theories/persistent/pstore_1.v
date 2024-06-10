@@ -3066,8 +3066,12 @@ Section pstore_G.
       destruct Eq. subst a1 a2. apply mirror_symm in M1,M2.
       eapply mirror_preserves_disjoint; try done. }
 
+    assert (xs'm ## sufm').
+    { subst. eapply mirror_preserves_disjoint.
+      1,2:by eapply mirror_symm. 1:done. all:set_solver. }
+
     assert (sufm ## xs') by TODO admit.
-    assert (xs'm ## sufm') by TODO admit.
+
     assert (xs'm ## ys') by TODO admit.
     assert (ys' ## sufm') by TODO admit.
     assert (ys' ## xs'm) by TODO admit.
