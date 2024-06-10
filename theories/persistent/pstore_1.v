@@ -1700,7 +1700,7 @@ Section pstore_G.
       rewrite lookup_alter_ne; set_solver. }
   Qed.
 
-  Lemma lookup_update_all M M' r' ρ x r v gen :
+  Lemma lookup_update_all M M' r' ρ x r v :
     M !! r' = Some ρ ->
     M' = update_all x M r v ->
     r' ∈ x ->
@@ -1739,6 +1739,19 @@ Section pstore_G.
     ρ !! r = Some (v,d).
   Proof.
     intros -> ->. rewrite !lookup_fmap. destruct (ρ !!r) as [(?,?)|]; naive_solver.
+  Qed.
+
+  Lemma update_all_perserves_domains n x M r v ρ X :
+    (∀ n (x : mapping), M !! n = Some x → dom x = X) ->
+    update_all x M r v !! n = Some ρ ->
+    dom ρ = X.
+  Proof.
+    intros E1 E2. destruct_decide (decide (n ∈ x)) as Hn.
+    { assert (is_Some (M!!n)) as (?&?).
+      { apply elem_of_dom. erewrite <- dom_update_all. by eapply elem_of_dom. }
+      { erewrite (lookup_update_all M) in E2; eauto. inversion E2. subst.
+        rewrite dom_alter_L //. eauto. } }
+    { rewrite lookup_update_all_ne // in E2. eauto. }
   Qed.
 
   Lemma pstore_set_spec t σ r v :
@@ -1803,7 +1816,7 @@ Section pstore_G.
         { rewrite insert_id //. }
         { destruct Hcoh as [X1 X2 X3].
           rewrite (insert_id _ r gen) //. constructor; rewrite ?dom_insert_lookup_L //.
-          admit. (* Should be easy, because update_all preserves domains *) } } }
+          eauto using update_all_perserves_domains. } } }
     (* No elision *)
     { wp_alloc newroot as "Hnewroot".
       wp_load. wp_load. wp_store. wp_store. wp_store. wp_store. iStep. iModIntro.
