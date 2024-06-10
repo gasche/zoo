@@ -2001,7 +2001,9 @@ Section pstore_G.
       assert (captured C' root) by (unfold captured; set_solver).
       rewrite decide_True; eauto.
       destruct_decide (decide (captured C root)) as HcapC; lia.
-   }
+    }
+
+    iDestruct (extract_unaliased with "[$]") as "%Hun".
 
     unfold pstore.
     iExists (* r0, root, orig, gen: *) t0, root, orig, (1+gen),
@@ -2057,24 +2059,40 @@ Section pstore_G.
       - subst l.
         assert (captured C' root) as CAP'root by (unfold captured, C'; set_solver).
         assert (captured C root) as CAPoot.
-        {
+        { destruct_decide (decide (captured C root)) as HC; first done. exfalso.
           (* If 'l' is the current root root and has a historic child
              k (we have (k, root) ∈ h), then the current root must be
-             captured already in C.
-
-             The reasoning is a bit subtle:
-
-             - if k is on the path from r to orig, then we have the
+             captured already in C. *)
+          assert (root ∈ dom M) as Hr.
+          { by apply elem_of_dom. }
+          eapply Htopo in HC; try done. destruct HC as (HC1&HC2).
+          specialize (HC1 (eq_refl _)).
+          destruct Hist as (xs&ys&Hpath&Hmir&HX&Hh). subst h.
+          rewrite /has_edge /undo_graph in Hkl. destruct Hkl as (c&Hc).
+          rewrite elem_of_union elem_of_difference in Hc.
+          destruct Hc as [Hc|(Hc1&Hc2)].
+          { (* - if k is on the path from root to orig, then we have the
                converse relation (root, k) ∈ g; but the root has no
-               parent unless it is itself captured (no_succ).
-
-             - if k is *not* on path from root to orig, then *some
+               parent unless it is itself captured (no_succ). *)
+            apply elem_of_list_to_set in Hc.
+            eapply mirror_mirrored_edges in Hc.
+            2:by apply mirror_symm. destruct Hc as (?&?).
+            eapply HC1 with k. apply path_all_in in Hpath. unfold has_edge. set_solver. }
+          { (* if k is *not* on path from root to orig, then *some
                other node* k' is, and we have (k, root) ∈ g and also
                (k', root) ∈ g, so the root must be captured by the
-               at_most_one_child invariant.
-           *)
-          TODO admit.
-        }
+               at_most_one_child invariant. *)
+            destruct (last xs) as [((?,?),?)|] eqn:Hlast .
+            { apply last_Some in Hlast. destruct Hlast as (?&->).
+              apply path_snoc_inv in Hpath. destruct Hpath as (?&?&Hc3). subst n0.
+              assert (n=k).
+              { eapply HC2; by eexists. }
+              subst n.
+              unfold at_most_one_child in HC2.
+              specialize (Hun _ _ _ _ _ Hc1 Hc3). set_solver. }
+            { apply last_None in Hlast. subst. inversion Hpath. subst.
+              (* orig = root, but I don't know how to conclude. *)
+              admit. (* Gabriel? *) } } }
         rewrite decide_True; eauto.
         rewrite decide_True in HgenC; eauto.
       - assert (captured C l <-> captured C' l) as CAPequiv by (unfold captured; set_solver).
