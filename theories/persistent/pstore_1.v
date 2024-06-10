@@ -3022,6 +3022,20 @@ Section pstore_G.
     unfold not_a_key in *. rewrite !fmap_app !fmap_cons. set_solver.
   Qed.
 
+  Lemma mirror_acyclic_not_in xs ys g :
+    mirror xs ys ->
+    acyclic g ->
+    list_to_set xs ⊆ g ->
+    list_to_set ys ## g.
+  Proof.
+    induction 1; first set_solver.
+    intros Hg Hu. simpl. rewrite list_to_set_app in Hu.
+    assert ((r', (k, v'), r) ∉ g); last set_solver.
+    intros ?. assert (path g r [(r, (k, v), r');(r', (k, v'), r)] r) as Hp.
+    { do 2 (apply path_cons; first set_solver). apply path_nil. }
+    apply Hg in Hp. done.
+  Qed.
+
   Lemma undo_preserves_histo g1 G ρg n1 h1 orig n2 xs xsm :
     acyclic g1 ->
     unaliased g1 ->
@@ -3132,9 +3146,13 @@ Section pstore_G.
     (* show the *D*ecompositions that can be read from the diagram *)
     set grest := g1 ∖ (list_to_set ys' ∪ list_to_set suf ∪ list_to_set xs').
 
-    assert (list_to_set sufm ## grest) by TODO admit.
-    assert (list_to_set xs'm ## grest) by TODO admit.
-    assert (list_to_set ys' ## grest) by TODO admit.
+    assert (list_to_set sufm ## grest).
+    { assert (list_to_set sufm ## g1). 2:set_solver.
+      eapply mirror_acyclic_not_in; try done; by eapply mirror_symm. }
+    assert (list_to_set xs'm ## grest).
+    { assert (list_to_set xs'm ## g1). 2:set_solver.
+      eapply mirror_acyclic_not_in; first by eapply mirror_symm. all:done. }
+    assert (list_to_set ys' ## grest) by set_solver.
 
     assert (g1 = grest ∪ (list_to_set ys' ∪ list_to_set suf ∪ list_to_set xs')) as Dg1.
     {
