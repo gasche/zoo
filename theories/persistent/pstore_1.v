@@ -1695,8 +1695,15 @@ Section pstore_G.
     { wp_store. iStep. iModIntro.
       iSpecialize ("Hρv" with "[$]").
       iSpecialize ("Hρg" with "[$]").
-      iExists _,_,_,_,_,_,_,_,_,_,_. iFrame.
-      admit. }
+      iExists _,_,_,_,_,_,_,_,_,_,_. iFrame. iPureIntro.
+      split_and !; try done.
+      { destruct Hinv as [X1 X2 X3 X4 X5]. constructor; try done.
+        { by apply gmap_included_insert. }
+        { destruct X4 as (ρ&E1&E2&E3).
+          exists ρ. split_and !; try done. all:admit. } }
+      { admit. }
+      { admit. }
+    }
     (* No elision *)
     { wp_alloc newroot as "Hnewroot".
       wp_load. wp_load. wp_store. wp_store. wp_store. wp_store. iStep. iModIntro.
