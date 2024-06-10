@@ -1723,11 +1723,18 @@ Section pstore_G.
           constructor; try done.
           1,2:rewrite dom_update_all //.
           { by apply gmap_included_insert. }
-          { admit. }
-          { admit. } }
-        { admit. }
-        { admit. }
-        { admit. } } }
+          { destruct X4 as (ρ&E1&E2&E3).
+            exists (<[r:=(v,gen)]>ρ). split_and !.
+            { (* should be easy, by def of update_all. *) admit. }
+            { rewrite fmap_insert E2 //. }
+            { rewrite fmap_insert E3 //. } }
+          { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
+            admit. } }
+        { rewrite /topology_inv dom_update_all //. }
+        { rewrite insert_id //. }
+        { destruct Hcoh as [X1 X2 X3].
+          rewrite (insert_id _ r gen) //. constructor; rewrite ?dom_insert_lookup_L //.
+          admit. (* Should be easy, because update_all preserves domains *) } } }
     (* No elision *)
     { wp_alloc newroot as "Hnewroot".
       wp_load. wp_load. wp_store. wp_store. wp_store. wp_store. iStep. iModIntro.
