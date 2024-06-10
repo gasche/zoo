@@ -1675,7 +1675,11 @@ Section pstore_G.
     wp_load. iStep 6. iModIntro.
     iStep 4. iIntros "[(->&%Egen) | (->&%Egen)]".
     (* Elision *)
-    { admit. }
+    { wp_store. iStep. iModIntro.
+      iSpecialize ("Hρv" with "[$]").
+      iSpecialize ("Hρg" with "[$]").
+      iExists _,_,_,_,_,_,_,_,_,_,_. iFrame.
+      admit. }
     (* No elision *)
     { wp_alloc newroot as "Hnewroot".
       wp_load. wp_load. wp_store. wp_store. wp_store. wp_store. iStep. iModIntro.
