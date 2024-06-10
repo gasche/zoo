@@ -1666,6 +1666,18 @@ Section pstore_G.
       exists x'. rewrite !lookup_insert_ne //. intros ->. apply Hne. apply elem_of_dom. naive_solver. }
   Qed.
 
+  Definition update_all (x:gset node_loc) (M:map_model) (i:ref_loc) (v:val) : map_model :=
+    set_fold (fun n M => alter (fun (ρ:mapping) => alter (fun '(_,d) => (v,d)) i ρ) n M) M x.
+
+  Lemma dom_update_all x M i v :
+    dom (update_all x M i v) = dom M.
+  Proof.
+    unfold update_all.
+    apply set_fold_ind_L with (P:=fun b c => dom b = dom M).
+    { done. }
+    { intros ???? <-. rewrite dom_alter_L //. }
+  Qed.
+
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
     {{{
@@ -1695,15 +1707,27 @@ Section pstore_G.
     { wp_store. iStep. iModIntro.
       iSpecialize ("Hρv" with "[$]").
       iSpecialize ("Hρg" with "[$]").
-      iExists _,_,_,_,_,_,_,_,_,_,_. iFrame. iPureIntro.
-      split_and !; try done.
-      { destruct Hinv as [X1 X2 X3 X4 X5]. constructor; try done.
-        { by apply gmap_included_insert. }
-        { destruct X4 as (ρ&E1&E2&E3).
-          exists ρ. split_and !; try done. all:admit. } }
+      apply Nat2Z.inj in Egen. subst refgen.
+      assert (r ∈ vertices g) as Hrvert.
       { admit. }
+      pose proof (ti1 _ _ Hgraph r Hrvert) as Hpath.
+      destruct Hpath as (xs&Hpath).
+      pose (M' := (update_all (vertices (list_to_set xs)) M r v)).
+      unfold pstore. iExists _,_,_,_,_,_,_,_.
+      iExists M',C,G. iFrame.
+      iSplitR "HC"; last first.
       { admit. }
-    }
+      { iPureIntro.
+        split_and !; try done.
+        { destruct Hinv as [X1 X2 X3 X4 X5].
+          constructor; try done.
+          1,2:rewrite dom_update_all //.
+          { by apply gmap_included_insert. }
+          { admit. }
+          { admit. } }
+        { admit. }
+        { admit. }
+        { admit. } } }
     (* No elision *)
     { wp_alloc newroot as "Hnewroot".
       wp_load. wp_load. wp_store. wp_store. wp_store. wp_store. iStep. iModIntro.
