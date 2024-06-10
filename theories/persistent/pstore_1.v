@@ -79,11 +79,17 @@ Definition pstore_get : val :=
 
 Definition pstore_set : val :=
   λ: "t" "r" "v",
-    let: "root" := ref §Root in
-    "t".{root} <- ‘Diff{ "r", "r".{sref_value}, "r".{sref_gen}, "root" } ;;
-    "r" <-{sref_value} "v" ;;
-    "r" <-{sref_gen} "t".{gen} ;;
-    "t" <-{root} "root".
+    let: "g_t" := "t".{gen} in
+    let: "g_r" := "r".{sref_gen} in
+    if: "g_t" = "g_r" then (
+      "r" <-{sref_value} "v"
+    ) else (
+      let: "root" := ref §Root in
+      "t".{root} <- ‘Diff{ "r", "r".{sref_value}, "g_r", "root" } ;;
+      "r" <-{sref_value} "v" ;;
+      "r" <-{sref_gen} "g_t" ;;
+      "t" <-{root} "root"
+    ).
 
 Definition pstore_capture : val :=
   λ: "t",
@@ -1655,12 +1661,10 @@ Section pstore_G.
     }}}.
   Proof.
     iIntros (Hr Φ) open_inv. iIntros "HΦ".
-    wp_rec. iStep 8. iModIntro.
-    wp_alloc newroot as "Hnewroot".
+    wp_rec. wp_load.
+    iStep 7.
 
-    rewrite elem_of_dom in Hr.
-    destruct Hr as (old & Hold).
-
+    apply elem_of_dom in Hr. destruct Hr as (old,Hr).
     assert (ρv !! r = Some old) as Hρr.
     { eapply use_r_in_σ; eauto. }
     destruct (use_r_in_dom ρv ρg r old) as (refgen & Hrefgen); eauto.
@@ -1668,7 +1672,13 @@ Section pstore_G.
 
     iDestruct (big_sepM_insert_acc with "Hρv") as "(Hv & Hρv)"; first done.
     iDestruct (big_sepM_insert_acc with "Hρg") as "(Hrgen & Hρg)" ; first done.
-    wp_load. wp_load. wp_load. wp_store. wp_store. wp_load. wp_store. wp_store. iStep.
+    wp_load. iStep 6. iModIntro.
+    iStep 4. iIntros "[(->&%Egen) | (->&%Egen)]".
+    (* Elision *)
+    { admit. }
+    (* No elision *)
+    { wp_alloc newroot as "Hnewroot".
+      wp_load. wp_load. wp_store. wp_store. wp_store. wp_store. iStep. iModIntro.
 
     iSpecialize ("Hρv" with "[$]").
     iSpecialize ("Hρg" with "[$]").
@@ -1691,8 +1701,6 @@ Section pstore_G.
       rewrite -si1G0 si1M0 in Hdom.
       set_solver.
     }
-
-    iModIntro.
 
     set rdiff := (r, (old, refgen)).
     destruct Hinv as [X1 X2 X3 X4 X5].
@@ -1885,8 +1893,8 @@ Section pstore_G.
       split_and!; eauto.
       unfold gen_succ_rel.
       rewrite lookup_insert_ne //.
-    }
-  Qed.
+    } }
+  Admitted.
 
   Definition restrict `{Countable K} {V} (x:gset K) (m:gmap K V) :=
     map_filter (fun '(k,_) => k ∈ x) _ m.
