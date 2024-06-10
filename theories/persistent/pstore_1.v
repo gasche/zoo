@@ -1786,40 +1786,37 @@ Section pstore_G.
       apply Nat2Z.inj in Egen. subst refgen.
       generalize Hist. intros Hist'.
       destruct Hist as (xs&ys&I1&I2&I3&I4).
-      destruct (lwt ys r) as [n|] eqn:Hlwt.
-      { apply I3 in Hlwt. destruct Hlwt as (x&HGn&Hx).
-        rewrite Hrefgen in Hx. inversion Hx. subst x. clear Hx.
-        pose (M' := (update_all (vertices (list_to_set xs) ∪ {[root]}) M r v)).
-      unfold pstore. iExists _,_,_,_,_,_,_,_.
-        iExists M',C,G. iFrame.
-        iSplitR "HC"; last first.
-        { admit. }
-        { iPureIntro.
-          split_and !; try done.
-          { destruct Hinv as [X1 X2 X3 X4 X5].
-            constructor; try done.
-            1,2:rewrite dom_update_all //.
-            { by apply gmap_included_insert. }
-            { destruct X4 as (ρ&E1&E2&E3).
-              exists (<[r:=(v,gen)]>ρ). split_and !.
-              { erewrite lookup_update_all; eauto.
-                { f_equal. erewrite overspecialized_lookup_alter; first done.  eauto using lookup_ρ. }
-                { apply path_unsnoc_case in I1. destruct I1 as [(->&->)|(?&?&?&->&?&?)].
-                  { set_solver. }
-                  { rewrite list_to_set_app_L vertices_union. simpl.
-                    rewrite right_id_L vertices_singleton.
-                    set_solver. } } }
-              { rewrite fmap_insert E2 //. }
-              { rewrite fmap_insert E3 //. } }
-            { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
-              admit. } }
-          { rewrite /topology_inv dom_update_all //. }
-          { rewrite insert_id //. }
-          { destruct Hcoh as [X1 X2 X3].
-            rewrite (insert_id _ r gen) //. constructor; rewrite ?dom_insert_lookup_L //.
-            eauto using update_all_perserves_domains. } } }
-      (* r does not appear in ys. *)
-      { admit. } }
+      pose (ne := match lwt ys r with None => orig | Some n => n end).
+      (* XXX I should not use xs below, but the prefix of ys from root to ne. *)
+      pose (M' := (update_all (vertices (list_to_set xs) ∪ {[root]}) M r v)).
+      iExists _,_,_,_,_,_,_,_.
+      iExists M',C,G. iFrame.
+      iSplitR "HC"; last first.
+      { admit. }
+iPureIntro.
+      split_and !; try done.
+      { destruct Hinv as [X1 X2 X3 X4 X5].
+        constructor; try done.
+        1,2:rewrite dom_update_all //.
+        { by apply gmap_included_insert. }
+        { destruct X4 as (ρ&E1&E2&E3).
+          exists (<[r:=(v,gen)]>ρ). split_and !.
+          { erewrite lookup_update_all; eauto.
+            { f_equal. erewrite overspecialized_lookup_alter; first done.  eauto using lookup_ρ. }
+            { apply path_unsnoc_case in I1. destruct I1 as [(->&->)|(?&?&?&->&?&?)].
+              { set_solver. }
+              { rewrite list_to_set_app_L vertices_union. simpl.
+                rewrite right_id_L vertices_singleton.
+                set_solver. } } }
+          { rewrite fmap_insert E2 //. }
+          { rewrite fmap_insert E3 //. } }
+        { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
+          admit. } }
+      { rewrite /topology_inv dom_update_all //. }
+      { rewrite insert_id //. }
+      { destruct Hcoh as [X1 X2 X3].
+        rewrite (insert_id _ r gen) //. constructor; rewrite ?dom_insert_lookup_L //.
+        eauto using update_all_perserves_domains. } }
     (* No elision *)
     { wp_alloc newroot as "Hnewroot".
       wp_load. wp_load. wp_store. wp_store. wp_store. wp_store. iStep. iModIntro.
