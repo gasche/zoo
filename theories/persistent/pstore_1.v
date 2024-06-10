@@ -812,7 +812,24 @@ Section mirror.
     { eapply path_app; eauto. }
   Qed.
 
-  Lemma mirror_preserves_disjoint (g:graph A (K*V)) xs ys xs' ys' :
+  Lemma mirror_preserves_disjoint1 (g:graph A (K*V)) xs ys xs' :
+    mirror xs xs' ->
+    acyclic g ->
+    list_to_set xs ⊆ g ->
+    list_to_set ys ⊆ g ->
+    xs ## ys ->
+    xs' ## ys.
+  Proof.
+    intros M1 Hacy ? ? E . apply mirror_symm in M1.
+    intros ((x,l),y) R1 R2.
+    destruct (mirror_mirrored_edges _ _ _ _ _ M1 R1) as (l1,R1').
+    assert ((y, l1, x) ∈ g /\ (x,l,y) ∈ g) as (G1&G2) by set_solver.
+    assert (path g x [(x,l,y);(y,l1,x)] x) as Hpath.
+    { apply path_cons; first done. apply path_cons; first done. apply path_nil. }
+    apply Hacy in Hpath. done.
+  Qed.
+
+  Lemma mirror_preserves_disjoint2 (g:graph A (K*V)) xs ys xs' ys' :
     mirror xs xs' ->
     mirror ys ys' ->
     unaliased g ->
@@ -3064,17 +3081,27 @@ Section pstore_G.
       apply app_inj_1 in Eq.
       2:{ apply mirror_same_length in M2,Msuf. lia. }
       destruct Eq. subst a1 a2. apply mirror_symm in M1,M2.
-      eapply mirror_preserves_disjoint; try done. }
-
+      eapply mirror_preserves_disjoint2; try done. }
     assert (xs'm ## sufm').
-    { subst. eapply mirror_preserves_disjoint.
+    { subst. eapply mirror_preserves_disjoint2.
       1,2:by eapply mirror_symm. 1:done. all:set_solver. }
 
-    assert (sufm ## xs') by TODO admit.
-
-    assert (xs'm ## ys') by TODO admit.
-    assert (ys' ## sufm') by TODO admit.
-    assert (ys' ## xs'm) by TODO admit.
+    assert (sufm ## xs').
+    { eapply mirror_preserves_disjoint1.
+      1:by eapply mirror_symm.
+      all: set_solver. }
+    assert (xs'm ## ys').
+    { eapply mirror_preserves_disjoint1.
+      1:by eapply mirror_symm.
+      all: set_solver. }
+    assert (sufm' ## ys').
+    { eapply mirror_preserves_disjoint1.
+      1:by eapply mirror_symm.
+      all: set_solver. }
+    assert (xs'm ## ys').
+    { eapply mirror_preserves_disjoint1.
+      1:by eapply mirror_symm.
+      all: set_solver. }
 
 (* behold a marvelous ASCII art diagram:
 
