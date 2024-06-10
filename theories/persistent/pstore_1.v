@@ -3111,15 +3111,15 @@ iPureIntro.
         { right. split; last done. unfold not_a_key in *. set_solver. } } }
   Qed.
 
-  Lemma lwt_spec `{Countable A} `{Countable K} `{Countable V} (xs:list (A * (K * V) * A)) (r:K) (n:A) :
+  Lemma lwt_spec `{Countable K} `{Countable V} (xs:list (node_loc * (K * V) * node_loc)) (r:K) (n:node_loc) :
     lwt xs r = Some n ->
-    exists xs0 a0 (v:V) a1 xs1, xs = xs0 ++ [(a0,(r,v),a1)]++xs1 /\ not_a_key xs0 r.
+    exists xs0 (v:V) a1 xs1, xs = xs0 ++ [(n,(r,v),a1)]++xs1 /\ not_a_key xs0 r.
   Proof.
     induction xs as [|((?,(?,?)),?)]; first done.
     simpl. case_decide.
-    { subst. inversion 1. eexists nil,_,_,_,_. split; first done. compute_done. }
-    { intros E. apply IHxs in E. destruct E as (xs0&?&?&?&?&->&?).
-      eexists (_::xs0),_,_,_,_. split; first done. unfold not_a_key in *. set_solver. }
+    { subst. inversion 1. eexists nil,_,_,_. split; first done. compute_done. }
+    { intros E. apply IHxs in E. destruct E as (xs0&?&?&?&->&?).
+      eexists (_::xs0),_,_,_. split; first done. unfold not_a_key in *. set_solver. }
   Qed.
 
   Lemma lwt_app_l `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
@@ -3335,11 +3335,12 @@ iPureIntro.
       apply lwt_app_inv in Hn.
       destruct Hn as [Hn|(Hnk&Hn)].
       (* r was in xs' *)
-      { apply lwt_spec in Hn. destruct Hn as (xs0&a0&v&a1&xs1&Hxs0&Hnot).
-        exists (snd v). subst xs xs'.
+      { apply lwt_spec in Hn. destruct Hn as (xs0&v&a1&xs1&Hxs0&Hnot).
+        exists (snd v).
         split.
-        { admit. (* Gabriel? *) }
-        { rewrite -!assoc_L.
+        { destruct v as (v,d). simpl in *.
+          admit. (* Gabriel? *) }
+        { subst xs xs'. rewrite -!assoc_L.
           rewrite fmap_app apply_diffl_app.
           rewrite deduce_apply_diffl_app_not_a_key //.
           destruct v. simpl. rewrite lookup_insert //. } }
