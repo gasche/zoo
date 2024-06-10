@@ -1789,7 +1789,7 @@ Section pstore_G.
       destruct (lwt ys r) as [n|] eqn:Hlwt.
       { apply I3 in Hlwt. destruct Hlwt as (x&HGn&Hx).
         rewrite Hrefgen in Hx. inversion Hx. subst x. clear Hx.
-        pose (M' := (update_all (vertices (list_to_set xs) ∪ {[n]}) M r v)).
+        pose (M' := (update_all (vertices (list_to_set xs) ∪ {[root]}) M r v)).
       unfold pstore. iExists _,_,_,_,_,_,_,_.
         iExists M',C,G. iFrame.
         iSplitR "HC"; last first.
@@ -1805,7 +1805,7 @@ Section pstore_G.
               { erewrite lookup_update_all; eauto.
                 { f_equal. erewrite overspecialized_lookup_alter; first done.  eauto using lookup_ρ. }
                 { apply path_unsnoc_case in I1. destruct I1 as [(->&->)|(?&?&?&->&?&?)].
-                  { admit. }
+                  { set_solver. }
                   { rewrite list_to_set_app_L vertices_union. simpl.
                     rewrite right_id_L vertices_singleton.
                     set_solver. } } }
@@ -1818,6 +1818,7 @@ Section pstore_G.
           { destruct Hcoh as [X1 X2 X3].
             rewrite (insert_id _ r gen) //. constructor; rewrite ?dom_insert_lookup_L //.
             eauto using update_all_perserves_domains. } } }
+      (* r does not appear in ys. *)
       { admit. } }
     (* No elision *)
     { wp_alloc newroot as "Hnewroot".
