@@ -339,6 +339,18 @@ Section graph.
     inversion Hpath. subst. inversion H9. naive_solver.
   Qed.
 
+  (* XXX may be of some use elsewhere. grep for last *)
+  Lemma path_unsnoc_case g a1 a3 xs :
+    path g a1 xs a3 ->
+    (xs = nil /\ a1 = a3) \/ exists xs' a2 b, xs = xs' ++ [(a2,b,a3)] /\ path g a1 xs' a2 /\ (a2,b,a3) ∈ g.
+  Proof.
+    intros Hp.
+    destruct (last xs) as [((?,?),?)|] eqn:Hlast.
+    { apply last_Some in Hlast. destruct Hlast as (?&->).
+      apply path_snoc_inv in Hp. naive_solver. }
+    { apply last_None in Hlast. subst. inversion Hp. eauto. }
+  Qed.
+
   Definition acyclic g := forall a xs, path g a xs a -> xs = nil.
 
   Record rooted_dag g (r:A) :=
@@ -1678,6 +1690,57 @@ Section pstore_G.
     { intros ???? <-. rewrite dom_alter_L //. }
   Qed.
 
+  Lemma lookup_update_all_ne r' x M r v :
+    r' ∉ x ->
+    update_all x M r v !! r' = M !! r'.
+  Proof.
+    apply set_fold_ind_L with (P:=fun b c => r' ∉ c -> b !! r' = M!!r') .
+    { done. }
+    { intros ???? IH ?.
+      rewrite lookup_alter_ne; set_solver. }
+  Qed.
+
+  Lemma lookup_update_all M M' r' ρ x r v gen :
+    M !! r' = Some ρ ->
+    M' = update_all x M r v ->
+    r' ∈ x ->
+    M' !! r' = Some (alter (λ '(_, d), (v, d)) r ρ).
+  Proof.
+    intros HM -> ?. rewrite /update_all.
+    replace x with ({[r']} ∪ (x ∖{[r']})).
+    2:{ rewrite comm_L difference_union_L. set_solver. }
+    rewrite set_fold_disj_union_strong. 2:set_solver.
+    { intros ??????. apply map_eq. intros i.
+      destruct_decide (decide (i=x1)).
+      { subst. rewrite lookup_alter lookup_alter_ne // lookup_alter_ne // lookup_alter //. }
+      { rewrite lookup_alter_ne //.
+        destruct_decide (decide (i=x2)).
+        { subst. rewrite !lookup_alter lookup_alter_ne //. }
+        { rewrite !lookup_alter_ne //. } } }
+    { rewrite set_fold_singleton. rewrite lookup_update_all_ne //; first set_solver.
+      rewrite lookup_alter HM //. }
+  Qed.
+
+  Lemma overspecialized_lookup_alter r (ρ:mapping) old d v :
+    ρ !! r = Some (old,d) ->
+    (alter (λ '(_, d), (v, d)) r ρ) = <[r:=(v,d)]> ρ.
+  Proof.
+    intros Hr. apply map_eq. intros i.
+    destruct_decide (decide (i=r)).
+    { subst. rewrite lookup_alter lookup_insert Hr //. }
+    { rewrite lookup_alter_ne // lookup_insert_ne //. }
+  Qed.
+
+  Lemma lookup_ρ ρv ρg ρ r v d:
+    ρv = fst <$> ρ ->
+    ρg = snd <$> ρ ->
+    ρv !! r = Some v ->
+    ρg !! r = Some d ->
+    ρ !! r = Some (v,d).
+  Proof.
+    intros -> ->. rewrite !lookup_fmap. destruct (ρ !!r) as [(?,?)|]; naive_solver.
+  Qed.
+
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
     {{{
@@ -1712,7 +1775,7 @@ Section pstore_G.
       { admit. }
       pose proof (ti1 _ _ Hgraph r Hrvert) as Hpath.
       destruct Hpath as (xs&Hpath).
-      pose (M' := (update_all (vertices (list_to_set xs)) M r v)).
+      pose (M' := (update_all (vertices (list_to_set xs) ∪ {[r]}) M r v)).
       unfold pstore. iExists _,_,_,_,_,_,_,_.
       iExists M',C,G. iFrame.
       iSplitR "HC"; last first.
@@ -1725,7 +1788,13 @@ Section pstore_G.
           { by apply gmap_included_insert. }
           { destruct X4 as (ρ&E1&E2&E3).
             exists (<[r:=(v,gen)]>ρ). split_and !.
-            { (* should be easy, by def of update_all. *) admit. }
+            { erewrite lookup_update_all; eauto.
+              { f_equal. erewrite overspecialized_lookup_alter; first done.  eauto using lookup_ρ. }
+              { apply path_unsnoc_case in Hpath. destruct Hpath as [(->&->)|(?&?&?&->&?&?)].
+                { set_solver. }
+                { rewrite list_to_set_app_L vertices_union. simpl.
+                  rewrite right_id_L vertices_singleton.
+                  set_solver. } } }
             { rewrite fmap_insert E2 //. }
             { rewrite fmap_insert E3 //. } }
           { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
