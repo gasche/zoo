@@ -2052,17 +2052,85 @@ Section pstore_G.
     rewrite !fmap_cons. simpl. f_equal. rewrite IHxs //.
   Qed.
 
-  Lemma deduce_was_modified g (xs ys:list (node_loc * ref_diff * node_loc)) r orig root n1 n2 ds :
-    (∀ n, n ∈ vertices (list_to_set xs) → at_most_one_child g n) ->
-    path g (lwt_or ys r orig) xs root ->
+  Lemma lwt_app_inv `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
+    lwt (xs ++ ys) r = Some n ->
+    (lwt xs r = Some n) \/ (not_a_key xs r /\ lwt ys r = Some n).
+  Proof.
+    revert ys. induction xs as [|((?,(?,?)),?)].
+    { right. split; last done.
+      rewrite /not_a_key. simpl. set_solver. }
+    { intros ys. simpl. case_decide.
+      { subst. naive_solver. }
+      { intros E. apply IHxs in E. destruct E as [|(?&?)].
+        { naive_solver. }
+        { right. split; last done. unfold not_a_key in *. set_solver. } } }
+  Qed.
+
+  Lemma lwt_spec `{Countable K} `{Countable V} (xs:list (node_loc * (K * V) * node_loc)) (r:K) (n:node_loc) :
+    lwt xs r = Some n ->
+    exists xs0 (v:V) a1 xs1, xs = xs0 ++ [(n,(r,v),a1)]++xs1 /\ not_a_key xs0 r.
+  Proof.
+    induction xs as [|((?,(?,?)),?)]; first done.
+    simpl. case_decide.
+    { subst. inversion 1. eexists nil,_,_,_. split; first done. compute_done. }
+    { intros E. apply IHxs in E. destruct E as (xs0&?&?&?&->&?).
+      eexists (_::xs0),_,_,_. split; first done. unfold not_a_key in *. set_solver. }
+  Qed.
+
+  Lemma lwt_app_l `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
+    lwt xs r = Some n ->
+    lwt (xs++ys) r = Some n.
+  Proof.
+    revert ys. induction xs as [|((?,(?,?)),?)]; first done. intros ys Hwt.
+    simpl in *. case_decide; first done. eauto.
+  Qed.
+
+  Lemma lwt_app_r `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
+    lwt xs r = None ->
+    lwt ys r = Some n ->
+    lwt (xs++ys) r = Some n.
+  Proof.
+    revert ys. induction xs as [|((?,(?,?)),?)]; first done. intros ys Hwt.
+    simpl in *. case_decide; first done. eauto.
+  Qed.
+
+  Lemma deduce_was_modified g (xs1 ys:list (node_loc * ref_diff * node_loc)) r orig root n1 n2 ds n :
+    lwt ys r = Some n ->
+    (∀ n, n ∈ vertices (list_to_set xs1) → at_most_one_child g n) ->
+    path g n xs1 root ->
     path g n1 ds n2 ->
-    n1 ∉ (vertices (list_to_set xs) ∪ {[root]}) ->
-    n2 ∈ (vertices (list_to_set xs) ∪ {[root]}) ->
+    n1 ∉ (vertices (list_to_set xs1) ∪ {[root]}) ->
+    n2 ∈ (vertices (list_to_set xs1) ∪ {[root]}) ->
     r ∈ (change_of_edge <$> ds).*1.
   Proof.
-    intros E1 Hp1 Hp2 Hn1 Hn2.
-    destruct_decide (decide (n2 = root)).
+    intros Hlwt E1 Hp1 Hp2 Hn1 Hn2.
   Admitted.
+  (*
+    apply lwt_spec in Hlwt. destruct Hlwt as (ys1&?&?&ys2&Eq&?).
+    subst.
+    apply mirror_app_inv in Hmir.
+    destruct Hmir as (xs1&xs2&Hm1&Hm2&->). simpl in Hm2.
+    inversion Hm2. subst.
+    apply mirror_
+
+
+    revert n1 Hp2 Hn1. induction ds; intros n1 Hp2 Hn1.
+    { inversion Hp2. subst. congruence. }
+    inversion Hp2. subst.
+    destruct_decide (decide (a2 ∈ vertices (list_to_set xs) ∪ {[root]})); last first.
+    { eapply IHds in H; eauto. set_solver. }
+    rewrite elem_of_union elem_of_singleton in H.
+    clear IHds.
+    destruct H as [|]; last first.
+    { subst. assert (n2 = root) by admit. subst.
+      assert (ds = nil) as -> by admit.
+      inversion Hp1; subst.
+      { admit. }
+      { }
+      admit. }
+    { admit.  }
+  Admitted.
+*)
 
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
@@ -2158,6 +2226,14 @@ Section pstore_G.
               specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2).
               rewrite X5. rewrite apply_diffl_alter_overwrite //.
 
+              (* The argument I intend is as follow:
+                 + n1 in not on xs1
+                 + n2 is on xs1
+                 Because every node on xs1 has at most one child, we know
+                 that the path from n1 to n2 encounters the entry-point of
+                 xs1, (lwt_or ys r orig) which allows to conclude.
+               *)
+
               assert (forall n, n ∈ ve -> n ∈ dom M /\ ¬ captured C n) as HnotC.
               { intros n Hn. split.
                 { admit. }
@@ -2195,10 +2271,8 @@ Section pstore_G.
 
               assert (forall n, n ∈ ve -> at_most_one_child g n).
               { intros n Hn. apply HnotC in Hn. unfold topology_inv in Htopo. naive_solver. }
-              eapply deduce_was_modified. 3:done.
-              3,4:naive_solver.
-              { set_solver. }
-              { eapply path_weak; first done. apply path_all_in in I1. set_solver. } }
+
+              admit. }
             { rewrite lookup_update_all_ne // in Hn2. eauto. } } } }
       { rewrite /topology_inv dom_update_all //. }
       { rewrite insert_id //. }
@@ -3518,48 +3592,6 @@ Section pstore_G.
     { compute_done. }
     { simpl. unfold not_a_key in *. case_decide; first set_solver.
       rewrite IHxs. set_solver. }
-  Qed.
-
-  Lemma lwt_app_inv `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
-    lwt (xs ++ ys) r = Some n ->
-    (lwt xs r = Some n) \/ (not_a_key xs r /\ lwt ys r = Some n).
-  Proof.
-    revert ys. induction xs as [|((?,(?,?)),?)].
-    { right. split; last done.
-      rewrite /not_a_key. simpl. set_solver. }
-    { intros ys. simpl. case_decide.
-      { subst. naive_solver. }
-      { intros E. apply IHxs in E. destruct E as [|(?&?)].
-        { naive_solver. }
-        { right. split; last done. unfold not_a_key in *. set_solver. } } }
-  Qed.
-
-  Lemma lwt_spec `{Countable K} `{Countable V} (xs:list (node_loc * (K * V) * node_loc)) (r:K) (n:node_loc) :
-    lwt xs r = Some n ->
-    exists xs0 (v:V) a1 xs1, xs = xs0 ++ [(n,(r,v),a1)]++xs1 /\ not_a_key xs0 r.
-  Proof.
-    induction xs as [|((?,(?,?)),?)]; first done.
-    simpl. case_decide.
-    { subst. inversion 1. eexists nil,_,_,_. split; first done. compute_done. }
-    { intros E. apply IHxs in E. destruct E as (xs0&?&?&?&->&?).
-      eexists (_::xs0),_,_,_. split; first done. unfold not_a_key in *. set_solver. }
-  Qed.
-
-  Lemma lwt_app_l `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
-    lwt xs r = Some n ->
-    lwt (xs++ys) r = Some n.
-  Proof.
-    revert ys. induction xs as [|((?,(?,?)),?)]; first done. intros ys Hwt.
-    simpl in *. case_decide; first done. eauto.
-  Qed.
-
-  Lemma lwt_app_r `{Countable A} `{Countable K} `{Countable V} (xs ys:list (A * (K * V) * A)) (r:K) (n:A) :
-    lwt xs r = None ->
-    lwt ys r = Some n ->
-    lwt (xs++ys) r = Some n.
-  Proof.
-    revert ys. induction xs as [|((?,(?,?)),?)]; first done. intros ys Hwt.
-    simpl in *. case_decide; first done. eauto.
   Qed.
 
   Lemma deduce_apply_diffl_app_not_a_key
