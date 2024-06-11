@@ -1221,9 +1221,11 @@ Section pstore_G.
   Qed.
 
   Definition lwt_inv G ρg (ys: list ref_diff_edge) :=
-    forall r n,
-      lwt ys r = Some n ->
-      exists x, G !! n = Some x /\ ρg !! r = Some x.
+    forall r x,
+      ρg !! r = Some x ->
+      match lwt ys r with
+      | None => x = 0
+      | Some n => G !! n = Some x end.
 
   Definition history_inv g G ρg root h orig :=
     exists xs ys,
@@ -1664,14 +1666,15 @@ Section pstore_G.
   Qed.
 
   Lemma lwt_inv_insert r G ρg ys :
+    lwt ys r = None ->
     ρg !! r = None ->
     lwt_inv G ρg ys ->
     lwt_inv G (<[r:=0]> ρg) ys.
   Proof.
-    intros ? Hlwt l n Hn.
-    apply Hlwt in Hn. destruct Hn as (x&?&?).
-    exists x. split; first done. rewrite lookup_insert_ne //.
-    intros ->. naive_solver.
+    intros E1 ? Hlwt l n Hn.
+    destruct_decide (decide (l = r)).
+    { subst. rewrite lookup_insert in Hn. inversion Hn. rewrite E1. done. }
+    { rewrite lookup_insert_ne // in Hn. apply Hlwt in Hn. done. }
   Qed.
 
   Lemma pstore_ref_spec t σ v :
@@ -1737,7 +1740,9 @@ Section pstore_G.
       { assumption. }
     }
     { destruct Hist as (xs&ys&?&?&?&?).
-      exists xs,ys; split_and!; eauto using lwt_inv_insert.
+      exists xs,ys; split_and!; eauto.
+      eapply lwt_inv_insert; eauto.
+      admit. (* easy. *)
     }
     { (* coherent *)
       destruct Hcoh as [X1 X2].
@@ -1759,7 +1764,7 @@ Section pstore_G.
         apply incl_dom_incl in H0. intros X. apply H0 in X.
         destruct Hcoh as [X1 X2]. apply X1 in Hx.
         apply not_elem_of_dom in Hρvr. set_solver. }
-  Qed.
+  Admitted.
 
 
   Lemma use_r_in_σ {M G g root} σ ρv ρg r v :
@@ -1812,12 +1817,13 @@ Section pstore_G.
     lwt_inv G ρg ys ->
     lwt_inv (<[newroot:=gen]> G) (<[r:=gen]> ρg) ((newroot, (r,x), root) :: ys).
   Proof.
-    intros Hne E r' n Hn.
-    simpl in Hn.
-    case_decide; first subst r'.
-    { inversion Hn. subst. exists gen. rewrite !lookup_insert //. }
-    { apply E in Hn. destruct Hn as (x'&HG&?).
-      exists x'. rewrite !lookup_insert_ne //. intros ->. apply Hne. apply elem_of_dom. naive_solver. }
+    intros Hne E r' n Hn. simpl. case_decide; first subst r'.
+    { rewrite lookup_insert in Hn. inversion Hn. subst.
+      rewrite lookup_insert. done. }
+    { rewrite !lookup_insert_ne // in Hn.
+      apply E in Hn. destruct (lwt ys r'); eauto.
+      rewrite lookup_insert_ne //. intros ->. apply Hne.
+      by apply elem_of_dom. }
   Qed.
 
   Definition update_all (x:gset node_loc) (M:map_model) (i:ref_loc) (v:val) : map_model :=
@@ -2161,10 +2167,9 @@ Section pstore_G.
                 apply path_weak with (g2:=h) in Hpath1'.
                 2:{ admit. }
                 assert (vertices h ⊆ dom G) by admit.
+                apply I3 in Hrefgen.
                 destruct (lwt ys r) eqn:Hlwt.
-                { destruct (I3 _ _ Hlwt) as (x&?&?).
-                  assert (x = gen) by naive_solver. subst x.
-                  rewrite /lwt_or Hlwt in Hpath1'.
+                { rewrite /lwt_or Hlwt in Hpath1'.
                   generalize Hpath1'. intros X.
                   eapply generation_decrease_on_path in X; eauto.
                   assert (gen = g0) by (case_decide; lia). subst g0.
@@ -2172,6 +2177,7 @@ Section pstore_G.
                   { subst. case_decide; try lia. done. }
                   eapply generation_no_capture_in_between; eauto.
                   apply mirror_vertices in Hm1. set_solver. }
+                (* r was not anywhere, we go up to orig! *)
                 { rewrite /lwt_or Hlwt in Hpath1, Hpath1', Hpath2.
                   assert (xs2 = nil) as ->.
                   { eapply use_mirror in Hpath2.
@@ -2180,7 +2186,8 @@ Section pstore_G.
                     2:{ apply path_all_in in I1. set_solver. }
                     apply Hgraph in Hpath2. done. }
                   apply mirror_nil_inv_l in Hm2. subst ys2.
-                  subst xs ys. simpl in *. clear Hpath2 Hfon.
+                  subst gen xs ys. simpl in *. clear Hpath2 Hfon.
+                  assert (g0 = 0) by (case_decide; lia). subst g0.
                   admit. } }
 
               assert (forall n, n ∈ ve -> at_most_one_child g n).
@@ -3734,35 +3741,28 @@ Section pstore_G.
       }
     - apply mirror_app; eauto.
       apply mirror_symm; eauto.
-    - intros r n Hn.
+    - intros r n Hr.
+      destruct (lwt zsm r) eqn:Hn; last first.
+      { admit. }
       unfold zsm in Hn.
       apply lwt_app_inv in Hn.
       destruct Hn as [Hn|(Hnk&Hn)].
       (* r was in xs' *)
       { apply lwt_spec in Hn. destruct Hn as (xs0&v&a1&xs1&Hxs0&Hnot).
-        exists (snd v).
-        split.
-        { destruct v as (v,d). simpl in *.
-          admit. (* Gabriel? *) }
-        { subst xs xs'. rewrite -!assoc_L.
-          rewrite fmap_app apply_diffl_app.
-          rewrite deduce_apply_diffl_app_not_a_key //.
-          destruct v. simpl. rewrite lookup_insert //. } }
+        { admit. (* Gabriel? *) } }
       (* r was in ys'm *)
       { rewrite /lwt_inv in Hlwt. subst ysm xs.
         destruct (lwt sufm r) eqn:Hpre.
         { pose proof (lwt_app_l _ ys'm _ _ Hpre) as HZ.
-          apply Hlwt in HZ. destruct HZ as (x&E1&E2).
-          exists x. admit. (* Gabriel? *) }
+          admit. (* Gabriel? *) }
         { (* r is not in [xs' ++ suf], easy *)
           pose proof (lwt_app_r _ ys'm _ _ Hpre Hn) as HZ.
-          apply Hlwt in HZ. destruct HZ as (x&?&?).
-          exists x. split; first done.
-          rewrite fmap_app apply_diffl_app.
-          rewrite deduce_apply_diffl_app_not_a_key //.
+          rewrite fmap_app apply_diffl_app in Hr.
+          rewrite deduce_apply_diffl_app_not_a_key // in Hr.
           apply lwt_None in Hpre.
-          rewrite deduce_apply_diffl_app_not_a_key //.
-          { eapply not_a_key_mirror; last done. done. } } }
+          rewrite deduce_apply_diffl_app_not_a_key // in Hr.
+          { eapply not_a_key_mirror; last done. done. }
+          apply Hlwt in Hr. rewrite HZ in Hr. done. } }
     - rewrite Dh2.
       rewrite Dg2.
       unfold undo_graph.
