@@ -1721,6 +1721,20 @@ Section pstore_G.
       rewrite lookup_alter HM //. }
   Qed.
 
+  Lemma lookup_update_all_Some x M r v r' ρ :
+    r' ∈ x ->
+    update_all x M r v !! r' = Some ρ ->
+    exists ρ', M !! r' = Some ρ' /\ ρ = (alter (λ '(_, d), (v, d)) r ρ').
+  Proof.
+    intros E1 E2.
+    assert (is_Some (M!!r')) as (?&E3).
+    { apply elem_of_dom. erewrite <- dom_update_all. by apply elem_of_dom. }
+    generalize E3. intros ?.
+    eapply (lookup_update_all _ _ _ _ _ r v) in E3; eauto.
+    rewrite E2 in E3.
+    inversion E3. subst. eauto.
+  Qed.
+
   Lemma overspecialized_lookup_alter r (ρ:mapping) old d v :
     ρ !! r = Some (old,d) ->
     (alter (λ '(_, d), (v, d)) r ρ) = <[r:=(v,d)]> ρ.
@@ -1852,10 +1866,7 @@ Section pstore_G.
         destruct (Hsnap _ _ _ Hn) as (ρ'&E1&E2&E3).
         destruct_decide (decide (n ∈ (vertices (list_to_set ys1) ∪ {[root]}))).
         (* The model of n is impacted! *)
-        { eexists _. split_and !; last done.
-          { erewrite lookup_update_all; try done. }
-          (* THIS IS ELISION *)
-          { admit. } }
+        { exfalso. admit. }
         (* The model of n is preserved, easy. *)
         { exists ρ'. split_and !; try done. subst M'. rewrite lookup_update_all_ne //. } }
       iPureIntro.
@@ -1874,7 +1885,23 @@ Section pstore_G.
           { rewrite fmap_insert E2 //. }
           { rewrite fmap_insert E3 //. } }
         { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
-          admit. } }
+          unfold M' in Hn1,Hn2.
+          remember (vertices (list_to_set ys1) ∪ {[root]}) as ve.
+          destruct_decide (decide (n1 ∈ ve)).
+          { (* if n1 is in ve, then n2 must be too: they are one the same path *)
+            assert (n2 ∈ ve).
+            { admit. }
+            { apply lookup_update_all_Some in Hn1,Hn2; try done.
+              destruct Hn1 as (?&Hn1&?). destruct Hn2 as (?&Hn2&?). subst.
+              specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2). rewrite X5.
+              admit. (* Should be ok, because none of the elements of the path are r *) } }
+          { rewrite lookup_update_all_ne // in Hn1.
+            destruct_decide (decide (n2 ∈ ve)).
+            { apply lookup_update_all_Some in Hn2; last done.
+              destruct Hn2 as (ρ'&Hn2&?). subst x2.
+              specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2).
+              rewrite X5. admit. }
+            { rewrite lookup_update_all_ne // in Hn2. eauto. } } } }
       { rewrite /topology_inv dom_update_all //. }
       { rewrite insert_id //. }
       { destruct Hcoh as [X1 X2 X3].
