@@ -1855,8 +1855,7 @@ Section pstore_G.
         { eexists _. split_and !; last done.
           { erewrite lookup_update_all; try done. }
           (* THIS IS ELISION *)
-          { apply included_alter; eauto. destruct (ρ !! r) as [(?,?)|] eqn:Hx; try done.
-            f_equal. admit. } }
+          { admit. } }
         (* The model of n is preserved, easy. *)
         { exists ρ'. split_and !; try done. subst M'. rewrite lookup_update_all_ne //. } }
       iPureIntro.
@@ -1871,9 +1870,7 @@ Section pstore_G.
             { f_equal. erewrite overspecialized_lookup_alter; first done.  eauto using lookup_ρ. }
             { apply path_unsnoc_case in I1. destruct I1 as [(->&->)|(?&?&?&->&?&?)].
               { set_solver. }
-              { rewrite list_to_set_app_L vertices_union. simpl.
-                rewrite right_id_L vertices_singleton.
-                set_solver. } } }
+              { set_solver. } } }
           { rewrite fmap_insert E2 //. }
           { rewrite fmap_insert E3 //. } }
         { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
