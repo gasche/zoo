@@ -1841,8 +1841,8 @@ Section pstore_G.
         destruct_decide (decide (n ∈ (vertices (list_to_set ys1) ∪ {[root]}))).
         (* The model of n is impacted! *)
         { admit. }
-        (* The model of n is preserved *)
-        { admit. } }
+        (* The model of n is preserved, easy. *)
+        { exists ρ'. split_and !; try done. subst M'. rewrite lookup_update_all_ne //. } }
       iPureIntro.
       split_and !; try done.
       { destruct Hinv as [X1 X2 X3 X4 X5].
