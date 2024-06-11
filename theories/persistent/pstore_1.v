@@ -1384,6 +1384,58 @@ Section pstore_G.
     destruct_decide (decide (captured C l)); [ eauto | lia ].
   Qed.
 
+  Lemma generation_decrease_on_path h C G root store_gen na xs nb gena genb :
+    global_gen_inv h C G root store_gen ->
+    vertices h ⊆ dom G ->
+    path h na xs nb ->
+    G !! na = Some gena ->
+    G !! nb = Some genb ->
+    genb <= gena.
+  Proof.
+    intros Hglobgen Hvertices.
+    revert gena na.
+    induction xs; intros gena na Pxs Gna Gnb; inversion Pxs; subst.
+    { naive_solver. }
+    { inversion Pxs. subst.
+      destruct Hglobgen as (G1&G2).
+      assert (is_Some (G !! a2)) as (?&Ha2).
+      { apply elem_of_dom. apply Hvertices. apply elem_of_vertices. eauto. }
+      transitivity x; first eauto.
+      assert (has_edge h na a2).
+      { eexists. done. }
+      eapply G1 in H; last done.
+      rewrite /gen_succ_rel Ha2 in H.
+      case_decide; lia. }
+  Qed.
+
+  Lemma generation_no_capture_in_between h C G root store_gen na xs nb gen :
+    global_gen_inv h C G root store_gen ->
+    vertices h ⊆ dom G ->
+    path h na xs nb ->
+    G !! na = Some gen ->
+    G !! nb = Some gen ->
+    (forall n, n ∈ vertices (list_to_set xs) ∖ {[na]} -> ¬ (captured C n)).
+  Proof.
+    intros Hglobgen Hvertices.
+    revert na.
+    induction xs; intros na Pxs Gna Gnb; inversion Pxs; subst; intros n.
+    { rewrite list_to_set_nil vertices_empty. set_solver. }
+    { rewrite list_to_set_cons vertices_union vertices_singleton. simpl.
+      generalize Hglobgen. intros (G1&G2).
+      assert (is_Some (G !! a2)) as (x&Ha2).
+      { apply elem_of_dom. apply Hvertices. apply elem_of_vertices. eauto. }
+
+      assert (has_edge h na a2).
+      { eexists. done. }
+      eapply G1 in H; last done.
+      rewrite /gen_succ_rel Ha2 in H. generalize H4; intros ?.
+      eapply generation_decrease_on_path in H4; eauto.
+      case_decide; try lia. subst x.
+      rewrite !elem_of_difference !elem_of_union !elem_of_singleton.
+      destruct_decide (decide (n=a2)); first naive_solver.
+      intros ?. eapply IHxs; eauto. set_solver. }
+  Qed.
+
   Lemma strict_generation_decrease_on_path h M C G root store_gen na xs nb gena genb :
     global_gen_inv h C G root store_gen ->
     vertices h ⊆ dom G ->
@@ -2077,7 +2129,7 @@ Section pstore_G.
 
           (* We need [xs1] the path from root to lwt. *)
           rewrite Hys in I2. apply mirror_app_inv in I2.
-          destruct I2 as (xs1&xs2&Hm1&Hm2&Hxs).
+          destruct I2 as (xs1&xs2&Hm1&Hm2&Hxs). generalize Hpath1. intros Hpath1'.
           apply mirror_symm in Hm1. eapply use_mirror in Hpath1; eauto.
           rewrite -(mirror_vertices ys1 xs1) // in Heqve.
 
@@ -2103,17 +2155,33 @@ Section pstore_G.
               assert (forall n, n ∈ ve -> n ∈ dom M /\ ¬ captured C n) as HnotC.
               { intros n Hn. split.
                 { admit. }
-                { subst ve. rewrite elem_of_union elem_of_singleton in Hn.
-                  intros HC.
-                  destruct Hglobgen as (G1&G2).
+                generalize Hglobgen. intros (G1&G2).
+                rewrite /gen_succ_rel in G2.
+                destruct (G !! root) as [g0|] eqn:HGroot; rewrite HGroot in G2; try done.
+                apply path_weak with (g2:=h) in Hpath1'.
+                2:{ admit. }
+                assert (vertices h ⊆ dom G) by admit.
+                destruct (lwt ys r) eqn:Hlwt.
+                { destruct (I3 _ _ Hlwt) as (x&?&?).
+                  assert (x = gen) by naive_solver. subst x.
+                  rewrite /lwt_or Hlwt in Hpath1'.
+                  generalize Hpath1'. intros X.
+                  eapply generation_decrease_on_path in X; eauto.
+                  assert (gen = g0) by (case_decide; lia). subst g0.
                   destruct_decide (decide (n=root)).
-                  { clear Hn. subst.
-                    rewrite /gen_succ_rel in G2.
-                    admit. }
-                  { destruct Hn as [Hn|?]; last congruence.
-                    apply undo_path with (ys:=ys) in I1; eauto. 2:admit.
-                    rewrite -I4 in I1.
-                    admit. } } }
+                  { subst. case_decide; try lia. done. }
+                  eapply generation_no_capture_in_between; eauto.
+                  apply mirror_vertices in Hm1. set_solver. }
+                { rewrite /lwt_or Hlwt in Hpath1, Hpath1', Hpath2.
+                  assert (xs2 = nil) as ->.
+                  { eapply use_mirror in Hpath2.
+                    2:{ by apply mirror_symm. }
+                    apply path_weak with (g2:=g) in Hpath2.
+                    2:{ apply path_all_in in I1. set_solver. }
+                    apply Hgraph in Hpath2. done. }
+                  apply mirror_nil_inv_l in Hm2. subst ys2.
+                  subst xs ys. simpl in *. clear Hpath2 Hfon.
+                  admit. } }
 
               assert (forall n, n ∈ ve -> at_most_one_child g n).
               { intros n Hn. apply HnotC in Hn. unfold topology_inv in Htopo. naive_solver. }
