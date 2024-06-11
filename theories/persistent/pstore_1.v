@@ -1831,13 +1831,19 @@ Section pstore_G.
       pose (ne := lwt_or ys r orig).
       pose proof (use_mirror _ _ _ _ _ I2 I1) as Hpathm.
       eapply (use_lwt_or r) in Hpathm. destruct Hpathm as (ys1&ys2&Hys&Hpath1&Hpath2&Hne&Hfon).
-      (* XXX I should not use xs below, but the prefix of ys from root to ne. *)
       pose (M' := (update_all (vertices (list_to_set ys1) ∪ {[root]}) M r v)).
       iExists _,_,_,_,_,_,_,_.
       iExists M',C,G. iFrame.
       iSplitR "HC"; last first.
-      { admit. }
-iPureIntro.
+      { iDestruct "HC" as "[% (%Hsnap&?&?)]". iExists _. iFrame. iPureIntro.
+        intros n ρ snap_gen Hn.
+        destruct (Hsnap _ _ _ Hn) as (ρ'&E1&E2&E3).
+        destruct_decide (decide (n ∈ (vertices (list_to_set ys1) ∪ {[root]}))).
+        (* The model of n is impacted! *)
+        { admit. }
+        (* The model of n is preserved *)
+        { admit. } }
+      iPureIntro.
       split_and !; try done.
       { destruct Hinv as [X1 X2 X3 X4 X5].
         constructor; try done.
