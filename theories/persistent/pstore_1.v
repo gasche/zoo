@@ -1304,7 +1304,7 @@ Section pstore_G.
     G !! nb = Some genb ->
     gena >= genb.
   Proof.
-    intros (Hglobgen & _) Hdom.
+    intros Hglobgen Hdom.
     revert xs na gena.
     induction xs; intros na gena Pxs Ga Gb.
     - inversion Pxs; subst.
@@ -1320,12 +1320,60 @@ Section pstore_G.
         destruct (elem_of_dom G a2) as [H1 _].
         destruct H1 as (gena2, Ga2); eauto.
         exists gena2; split; eauto.
-        pose proof (Hglobgen na gena a2 ltac:(eexists; eauto) Ga).
-        unfold gen_succ_rel in H. rewrite Ga2 in H.
-        revert H.
-        destruct_decide (decide (captured C a2)); lia.
+        eapply generations_decrease_along_history_edge; eauto.
+        eexists; eauto.
       }
       pose proof (IHxs a2 gena2 H4 Ga2 Gb); lia.
+  Qed.
+
+  Lemma strict_generation_decrease_on_edge h M C G root store_gen k l (gk gl : generation) :
+    global_gen_inv h C G root store_gen ->
+    has_edge h k l ->
+    G !! k = Some gk ->
+    G !! l = Some gl ->
+    gk > gl ->
+    captured C l.
+  Proof.
+    intros Hglobgeninv Hedge Gk Gl Hkl.
+    destruct Hglobgeninv as [H _].
+    specialize (H k gk l Hedge Gk).
+    unfold gen_succ_rel in H.
+    rewrite Gl in H.
+    destruct_decide (decide (captured C l)); [ eauto | lia ].
+  Qed.
+
+  Lemma strict_generation_decrease_on_path h M C G root store_gen na xs nb gena genb :
+    global_gen_inv h C G root store_gen ->
+    vertices h ⊆ dom G ->
+    path h na xs nb ->
+    G !! na = Some gena ->
+    G !! nb = Some genb ->
+    gena > genb ->
+    exists j diff k,
+    (j, diff, k) ∈ xs /\ captured C k.
+  Proof.
+    intros Hglobgen Hvertices.
+    revert na.
+    induction xs; intros na Pxs Gna Gnb Hgens.
+    - inversion Pxs; subst.
+      rewrite Gna in Gnb.
+      injection Gnb; lia.
+    - inversion Pxs as [ | na' diff nc xs' nb'' Hedge Pxs' ]; subst na' nb'' a xs.
+      assert (exists genc, G !! nc = Some genc) as [ genc Gnc ]. {
+        destruct (elem_of_dom G nc) as [Hc _]. apply Hc.
+        apply Hvertices. eapply right_vertex; eauto.
+      }
+      pose proof (generations_decrease_along_history_edge h M C G root store_gen na nc gena genc
+                  Hglobgen ltac:(exists diff; assumption) Gna Gnc) as Hac.
+      assert (gena > genc \/ (gena = genc /\ genc > genb)) as Hsplit by lia.
+      { clear Hac; destruct Hsplit as [ Hac | (-> & Hcb) ].
+      - pose proof (strict_generation_decrease_on_edge h M C G root store_gen na nc gena genc) as H.
+        specialize (H ltac:(done) ltac:(eexists; eauto) ltac:(done) ltac:(done) ltac:(done)).
+        exists na, diff, nc; split; [ set_solver | auto ].
+      - specialize (IHxs nc ltac:(done) ltac:(done) ltac:(done) ltac:(done)) as (j & diff' & k & Hjk & CAPk).
+        exists j, diff', k.
+        split; [ set_solver | eauto ].
+      }
   Qed.
 
   (* NB our invariant asserts that g is indeed a rooted tree: a rooted DAG
