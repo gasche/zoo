@@ -1159,6 +1159,18 @@ Section pstore_G.
   Definition at_most_one_child g k :=
     forall k1 k2, has_edge g k1 k -> has_edge g k2 k -> k1 = k2.
 
+  Lemma rooted_dag_no_succ g root :
+    rooted_dag g root -> no_succ g root.
+  Proof.
+    intros Hdag k (diff & Hedge).
+    destruct Hdag as [Hreach Hacy].
+    specialize (Hreach k ltac:(eapply right_vertex; eauto)) as [xs Pxs].
+    set xs' := (root, diff, k) :: xs.
+    assert (path g root xs' root) as Pxs' by (constructor; eauto).
+    specialize (Hacy root xs' Pxs').
+    inversion Hacy.
+  Qed.
+
   Definition topology_inv g M C root :=
     (* If a node is not captured, then:
        - if it is the current root, it has no children
