@@ -1980,6 +1980,21 @@ Section pstore_G.
     rewrite !fmap_cons. simpl. f_equal. rewrite IHxs //.
   Qed.
 
+  Lemma deduce_was_modified g (xs ys:list (node_loc * ref_diff * node_loc)) r orig root n1 n2 ds :
+    (∀ n, n ∈ vertices (list_to_set xs) → at_most_one_child g n) ->
+    path g (lwt_or ys r orig) xs root ->
+    path g n1 ds n2 ->
+    n1 ∉ (vertices (list_to_set xs) ∪ {[root]}) ->
+    n2 ∈ (vertices (list_to_set xs) ∪ {[root]}) ->
+    r ∈ (change_of_edge <$> ds).*1.
+  Proof.
+    intros E1 Hp1 Hp2 Hn1 Hn2.
+    induction Hp2 .
+    { congruence. }
+    { destruct_decide (decide (a2 ∈ vertices (list_to_set xs) ∪ {[root]})) as Ha2; last set_solver.
+      clear IHHp2.
+  Admitted.
+
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
     {{{
@@ -2045,12 +2060,15 @@ Section pstore_G.
         { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
           unfold M' in Hn1,Hn2.
           remember (vertices (list_to_set ys1) ∪ {[root]}) as ve.
+
+          (* We need [xs1] the path from root to lwt. *)
+          rewrite Hys in I2. apply mirror_app_inv in I2.
+          destruct I2 as (xs1&xs2&Hm1&Hm2&Hxs).
+          apply mirror_symm in Hm1. eapply use_mirror in Hpath1; eauto.
+          rewrite -(mirror_vertices ys1 xs1) // in Heqve.
+
           destruct_decide (decide (n1 ∈ ve)) as Hv1.
           { (* if n1 is in ve, then n2 must be too: they are one the same path *)
-            rewrite Hys in I2. apply mirror_app_inv in I2.
-            destruct I2 as (xs1&xs2&Hm1&Hm2&Hxs).
-            apply mirror_symm in Hm1. eapply use_mirror in Hpath1; eauto.
-            rewrite -(mirror_vertices ys1 xs1) // in Heqve.
             generalize Hv1. intros ?.
             eapply path_deduce_somehwere_in in Hv1; last done; try done.
             2:{ eapply path_weak; first done. apply path_all_in in I1. set_solver. }
@@ -2060,16 +2078,34 @@ Section pstore_G.
             specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2). rewrite X5.
             rewrite apply_diffl_alter_commut_ne //.
             eapply not_a_key_mirror in Hne; last done. unfold not_a_key in Hne.
-            assert (r ∉ ds.*1.*2.*1); first set_solver.
-            rewrite eq_that_should_be_a_def //. }
+            rewrite eq_that_should_be_a_def. set_solver. }
           { rewrite lookup_update_all_ne // in Hn1.
             destruct_decide (decide (n2 ∈ ve)).
             { apply lookup_update_all_Some in Hn2; last done.
               destruct Hn2 as (ρ'&Hn2&?). subst x2.
               specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2).
               rewrite X5. rewrite apply_diffl_alter_overwrite //.
-              (* We have to show that ds *includes* a change on r. *)
-              admit. }
+
+              assert (forall n, n ∈ ve -> n ∈ dom M /\ ¬ captured C n) as HnotC.
+              { intros n Hn. split.
+                { admit. }
+                { subst ve. rewrite elem_of_union elem_of_singleton in Hn.
+                  intros HC.
+                  destruct Hglobgen as (G1&G2).
+                  destruct_decide (decide (n=root)).
+                  { clear Hn. subst.
+                    assert (G !! root = Some gen) as HGroot; last first.
+                    { rewrite /gen_succ_rel HGroot decide_True // in G2. lia. }
+                    admit. (* ??? *) }
+                  { destruct Hn as [Hn|?]; last congruence.
+                    admit.  } } }
+
+              assert (forall n, n ∈ ve -> at_most_one_child g n).
+              { naive_solver. }
+              eapply deduce_was_modified. 3:done.
+              3,4:naive_solver.
+              { set_solver. }
+              { eapply path_weak; first done. apply path_all_in in I1. set_solver. } }
             { rewrite lookup_update_all_ne // in Hn2. eauto. } } } }
       { rewrite /topology_inv dom_update_all //. }
       { rewrite insert_id //. }
