@@ -2188,7 +2188,10 @@ Section pstore_G.
                   apply mirror_nil_inv_l in Hm2. subst ys2.
                   subst gen xs ys. simpl in *. clear Hpath2 Hfon.
                   assert (g0 = 0) by (case_decide; lia). subst g0.
-                  admit. } }
+                  destruct_decide (decide (n=root)).
+                  { subst. case_decide; try lia. done. }
+                  eapply generation_no_capture_in_between; eauto.
+                  apply mirror_vertices in Hm1. set_solver. } }
 
               assert (forall n, n ∈ ve -> at_most_one_child g n).
               { intros n Hn. apply HnotC in Hn. unfold topology_inv in Htopo. naive_solver. }
