@@ -1037,6 +1037,21 @@ Section adiffl.
       rewrite alter_insert_ne; first set_solver. done. }
   Qed.
 
+  Lemma apply_diffl_alter_overwrite xs f (r:location) (σ: gmap location V) :
+    r ∈ xs.*1 ->
+    apply_diffl xs (alter f r σ) = apply_diffl xs σ.
+  Proof.
+    revert σ. induction xs as [|(?,?)].
+    { set_solver. }
+    { intros ?. rewrite fmap_cons !apply_diffl_cons. intros ?.
+      destruct_decide (decide (r=l)).
+      { subst. destruct_decide (decide (l ∈ xs.*1)).
+        { rewrite IHxs //. }
+        { rewrite apply_diffl_alter_commut_ne //.
+          rewrite -insert_delete_insert delete_alter insert_delete_insert //. } }
+      { rewrite IHxs //. set_solver. } }
+  Qed.
+
 End adiffl.
 
 (* ------------------------------------------------------------------------ *)
@@ -1947,8 +1962,23 @@ Section pstore_G.
       assert (ds = [] /\ n2 = root) as (->&->).
       { inversion Hp2; first done. subst. exfalso. eapply rooted_dag_root_has_no_succ; eauto. }
       set_solver. }
-    Qed.
+  Qed.
 
+  Lemma not_a_key_mirror (xs ys:list (node_loc * ref_diff * node_loc)) r :
+    mirror xs ys ->
+    not_a_key xs r ->
+    not_a_key ys r.
+  Proof.
+    induction 1; first compute_done.
+    unfold not_a_key in *. rewrite !fmap_app !fmap_cons. set_solver.
+  Qed.
+
+  Lemma eq_that_should_be_a_def (xs:list (node_loc * ref_diff * node_loc)) :
+    (change_of_edge <$> xs).*1 = xs.*1.*2.*1.
+  Proof.
+    induction xs as [|((?,(?&?)),?)]; first done.
+    rewrite !fmap_cons. simpl. f_equal. rewrite IHxs //.
+  Qed.
 
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
@@ -2029,13 +2059,15 @@ Section pstore_G.
             destruct Hn1 as (?&Hn1&?). destruct Hn2 as (?&Hn2&?). subst.
             specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2). rewrite X5.
             rewrite apply_diffl_alter_commut_ne //.
-            admit. (* Should be ok *) }
+            eapply not_a_key_mirror in Hne; last done. unfold not_a_key in Hne.
+            assert (r ∉ ds.*1.*2.*1); first set_solver.
+            rewrite eq_that_should_be_a_def //. }
           { rewrite lookup_update_all_ne // in Hn1.
             destruct_decide (decide (n2 ∈ ve)).
             { apply lookup_update_all_Some in Hn2; last done.
               destruct Hn2 as (ρ'&Hn2&?). subst x2.
               specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2).
-              rewrite X5.
+              rewrite X5. rewrite apply_diffl_alter_overwrite //.
               (* We have to show that ds *includes* a change on r. *)
               admit. }
             { rewrite lookup_update_all_ne // in Hn2. eauto. } } } }
@@ -3365,15 +3397,6 @@ Section pstore_G.
     { done. }
     { unfold not_a_key in *. rewrite apply_diffl_cons.
       rewrite lookup_insert_ne; set_solver. }
-  Qed.
-
-  Lemma not_a_key_mirror (xs ys:list (node_loc * ref_diff * node_loc)) r :
-    mirror xs ys ->
-    not_a_key xs r ->
-    not_a_key ys r.
-  Proof.
-    induction 1; first compute_done.
-    unfold not_a_key in *. rewrite !fmap_app !fmap_cons. set_solver.
   Qed.
 
   Lemma mirror_acyclic_not_in xs ys g :
