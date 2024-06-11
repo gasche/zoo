@@ -1882,19 +1882,25 @@ Section pstore_G.
     { rewrite lookup_alter_ne //. eauto. }
   Qed.
 
-  (*
   Lemma path_deduce_somehwere_in ve g lw xs root n1 ds n2 :
-    unaliased g ->
     ve = vertices (list_to_set xs) ∪ {[root]} ->
     path g lw xs root ->
     path g n1 ds n2 ->
     n1 ∈ ve ->
-    n2 ∈ ve.
+    n2 ∈ ve /\ (list_to_set ds : gset _) ⊆ (list_to_set xs).
   Proof.
-    intros Hg -> ??.
-
+    intros -> Hp1 Hp2.
+    rewrite !elem_of_union !elem_of_singleton.
+    intros [E | E].
+    { apply elem_of_vertices in E. destruct E as (?&?&E).
+      destruct E as [E|E].
+      { admit. }
+      { admit. } }
+    { subst n1.
+      assert (ds = [] /\ n2 = root) as (->&->).
+      { admit. } (* root has no succ *)
+      set_solver. }
   Admitted.
-*)
 
 
   Lemma pstore_set_spec t σ r v :
@@ -1962,14 +1968,20 @@ Section pstore_G.
         { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
           unfold M' in Hn1,Hn2.
           remember (vertices (list_to_set ys1) ∪ {[root]}) as ve.
-          destruct_decide (decide (n1 ∈ ve)).
+          destruct_decide (decide (n1 ∈ ve)) as Hv1.
           { (* if n1 is in ve, then n2 must be too: they are one the same path *)
-            assert (n2 ∈ ve).
-            { admit. }
-            { apply lookup_update_all_Some in Hn1,Hn2; try done.
-              destruct Hn1 as (?&Hn1&?). destruct Hn2 as (?&Hn2&?). subst.
-              specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2). rewrite X5.
-              rewrite apply_diffl_alter_commut_ne //.
+            rewrite Hys in I2. apply mirror_app_inv in I2.
+            destruct I2 as (xs1&xs2&Hm1&Hm2&Hxs).
+            apply mirror_symm in Hm1. eapply use_mirror in Hpath1; eauto.
+            rewrite -(mirror_vertices ys1 xs1) // in Heqve.
+            generalize Hv1. intros ?.
+            eapply path_deduce_somehwere_in in Hv1; last done; try done.
+            2:{ eapply path_weak; first done. apply path_all_in in I1. set_solver. }
+            destruct Hv1 as (?&?).
+            apply lookup_update_all_Some in Hn1,Hn2; try done.
+            destruct Hn1 as (?&Hn1&?). destruct Hn2 as (?&Hn2&?). subst.
+            specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2). rewrite X5.
+            rewrite apply_diffl_alter_commut_ne //.
               admit. (* Should be ok *) } }
           { rewrite lookup_update_all_ne // in Hn1.
             destruct_decide (decide (n2 ∈ ve)).
