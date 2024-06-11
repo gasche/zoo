@@ -1840,7 +1840,9 @@ Section pstore_G.
         destruct (Hsnap _ _ _ Hn) as (ρ'&E1&E2&E3).
         destruct_decide (decide (n ∈ (vertices (list_to_set ys1) ∪ {[root]}))).
         (* The model of n is impacted! *)
-        { admit. }
+        { eexists _. split_and !; last done.
+          { erewrite lookup_update_all; try done. }
+          { admit. (* THIS IS ELISION *) } }
         (* The model of n is preserved, easy. *)
         { exists ρ'. split_and !; try done. subst M'. rewrite lookup_update_all_ne //. } }
       iPureIntro.
