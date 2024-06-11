@@ -1754,6 +1754,48 @@ Section pstore_G.
     { rewrite lookup_update_all_ne // in E2. eauto. }
   Qed.
 
+  Definition lwt_or (xs:list ref_diff_edge) r orig :=
+    match lwt xs r with
+    | Some n => n
+    | None => orig end.
+
+  (* first or nothing *)
+  Definition fon (xs:list ref_diff_edge) r :=
+    match xs with
+    | [] => True
+    | (_,(r',_),_)::_ => r = r' end.
+
+
+  Definition not_a_key `{Countable A} `{Countable K} `{Countable V} (xs:list (A * (K * V) * A)) (r:K) := r ∉ xs.*1.*2.*1.
+
+  Lemma use_lwt_or r g root ys orig :
+    path g root ys orig ->
+    exists ys1 ys2,
+      ys = ys1 ++ ys2 /\
+      path g root ys1 (lwt_or ys r orig) /\
+      path g (lwt_or ys r orig) ys2 orig /\
+      not_a_key ys1 r /\ fon ys2 r.
+  Proof.
+    induction 1.
+    { exists nil,nil. split_and !; try done.
+      { apply path_nil. }
+      { apply path_nil. }
+      { compute_done. } }
+    { destruct b as (r',?).
+      destruct_decide (decide (r=r')).
+      { subst. unfold lwt_or, lwt. rewrite decide_True //.
+        eexists [],_. split_and !; first done.
+        { apply path_nil. }
+        { by apply path_cons. }
+        { by compute_done. }
+        { done. } }
+      { rewrite /lwt_or. simpl. rewrite decide_False //.
+        destruct IHpath as (ys1&ys2&?&?&?&?&?). subst.
+        eexists (_::ys1),ys2. split_and !; try done.
+        { apply path_cons; done. }
+        { unfold not_a_key in *. set_solver. } } }
+  Qed.
+
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
     {{{
@@ -1786,9 +1828,11 @@ Section pstore_G.
       apply Nat2Z.inj in Egen. subst refgen.
       generalize Hist. intros Hist'.
       destruct Hist as (xs&ys&I1&I2&I3&I4).
-      pose (ne := match lwt ys r with None => orig | Some n => n end).
+      pose (ne := lwt_or ys r orig).
+      pose proof (use_mirror _ _ _ _ _ I2 I1) as Hpathm.
+      eapply (use_lwt_or r) in Hpathm. destruct Hpathm as (ys1&ys2&Hys&Hpath1&Hpath2&Hne&Hfon).
       (* XXX I should not use xs below, but the prefix of ys from root to ne. *)
-      pose (M' := (update_all (vertices (list_to_set xs) ∪ {[root]}) M r v)).
+      pose (M' := (update_all (vertices (list_to_set ys1) ∪ {[root]}) M r v)).
       iExists _,_,_,_,_,_,_,_.
       iExists M',C,G. iFrame.
       iSplitR "HC"; last first.
@@ -3085,8 +3129,6 @@ iPureIntro.
       rewrite elem_of_union. right.
       apply Hincl; done.
   Qed.
-
-  Definition not_a_key `{Countable A} `{Countable K} `{Countable V} (xs:list (A * (K * V) * A)) (r:K) := r ∉ xs.*1.*2.*1.
 
   Lemma lwt_None  `{Countable A} `{Countable K} `{Countable V} (xs:list (A * (K * V) * A)) (r:K) :
     lwt xs r = None <-> not_a_key xs r.
