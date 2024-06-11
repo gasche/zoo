@@ -3358,6 +3358,21 @@ Section pstore_G.
     }
   Qed.
 
+  Lemma elem_of_path_right_vertex g na xs nb k diff l :
+    path g na xs nb ->
+    (k, diff, l) ∈ xs ->
+    k = na \/ exists j diff', (j, diff', k) ∈ xs.
+  Proof.
+    intros Pxs Hkl.
+    destruct (elem_of_list_split xs _ Hkl) as (l1 & l2 & Hxs).
+    subst xs.
+    destruct (path_app_inv g na nb l1 ((k, diff, l) :: l2) Pxs) as (mid & Pl1 & Pl2).
+    assert (mid = k) by (inversion Pl2; auto); subst mid.
+    { destruct (path_unsnoc_case g na k _ Pl1) as [ (H1 & H2) | (l0 & j & diff' & Hl1 & Pl0 & Hjk) ].
+    - left; auto.
+    - right; exists j, diff'. set_solver. }
+  Qed.
+
   Lemma undo_preserves_topo g M C (xs ys:list ref_diff_edge) orig root snaproot :
     dom M = vertices g ∪ {[root]} ->
     unaliased g ->
@@ -3373,7 +3388,17 @@ Section pstore_G.
     - intro; subst k.
       destruct (Htopo orig) as [H1 H2]; eauto.
       specialize (H1 ltac:(auto)).
-      admit.
+      intros k Hedge.
+      { destruct (undo_graph_edges g snaproot xs root ys Hpath Hmirror _ _ Hedge) as [ (d1, He1) | (d2, He2) ].
+      - apply (H1 k).
+        exists d1; set_solver.
+      - { destruct (elem_of_path_right_vertex g snaproot xs root orig d2 k); eauto; first by set_solver.
+          - subst; contradiction CAPk.
+          - destruct H as (j & diff' & Hjorig).
+            apply H1 with j; exists diff'; eauto.
+            eapply path_all_in; eauto. set_solver.
+        }
+      }
     - intros k1 k2 Hk1 Hk2.
       { destruct (undo_graph_edges g snaproot xs root ys Hpath Hmirror _ _ Hk1) as [ (d1, Hk1') | (d1, Hk1') ];
           destruct (undo_graph_edges g snaproot xs root ys Hpath Hmirror _ _ Hk2) as [ (d2, Hk2') | (d2, Hk2') ];
@@ -3390,7 +3415,7 @@ Section pstore_G.
         }
       }
     }
-  Admitted.
+  Qed.
 
   Lemma undo_preserves_outside_path g root xs snaproot ys j zs k :
     path g snaproot xs root ->
