@@ -1025,6 +1025,18 @@ Section adiffl.
     revert σ1 σ2. induction xs as [|(?,?)]; intros;
       [ done | eauto using gmap_included_insert ].
   Qed.
+
+  Lemma apply_diffl_alter_commut_ne xs f (r:location) (σ: gmap location V) :
+    r ∉ xs.*1 ->
+    apply_diffl xs (alter f r σ) = alter f r (apply_diffl xs σ).
+  Proof.
+    revert σ. induction xs as [|(?,?)].
+    { done. }
+    { intros ?. rewrite fmap_cons !apply_diffl_cons. intros ?.
+      rewrite IHxs; first set_solver.
+      rewrite alter_insert_ne; first set_solver. done. }
+  Qed.
+
 End adiffl.
 
 (* ------------------------------------------------------------------------ *)
@@ -1870,6 +1882,21 @@ Section pstore_G.
     { rewrite lookup_alter_ne //. eauto. }
   Qed.
 
+  (*
+  Lemma path_deduce_somehwere_in ve g lw xs root n1 ds n2 :
+    unaliased g ->
+    ve = vertices (list_to_set xs) ∪ {[root]} ->
+    path g lw xs root ->
+    path g n1 ds n2 ->
+    n1 ∈ ve ->
+    n2 ∈ ve.
+  Proof.
+    intros Hg -> ??.
+
+  Admitted.
+*)
+
+
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
     {{{
@@ -1942,13 +1969,16 @@ Section pstore_G.
             { apply lookup_update_all_Some in Hn1,Hn2; try done.
               destruct Hn1 as (?&Hn1&?). destruct Hn2 as (?&Hn2&?). subst.
               specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2). rewrite X5.
-              admit. (* Should be ok, because none of the elements of the path are r *) } }
+              rewrite apply_diffl_alter_commut_ne //.
+              admit. (* Should be ok *) } }
           { rewrite lookup_update_all_ne // in Hn1.
             destruct_decide (decide (n2 ∈ ve)).
             { apply lookup_update_all_Some in Hn2; last done.
               destruct Hn2 as (ρ'&Hn2&?). subst x2.
               specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2).
-              rewrite X5. admit. }
+              rewrite X5.
+              (* We have to show that ds *includes* a change on r. *)
+              admit. }
             { rewrite lookup_update_all_ne // in Hn2. eauto. } } } }
       { rewrite /topology_inv dom_update_all //. }
       { rewrite insert_id //. }
