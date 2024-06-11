@@ -1796,6 +1796,18 @@ Section pstore_G.
         { unfold not_a_key in *. set_solver. } } }
   Qed.
 
+  Lemma included_alter `{Countable K} {V} (ρ ρ':gmap K V) f (r:K) :
+    match ρ !! r with None => True | Some x => x = f x end ->
+    ρ ⊆ ρ' ->
+    ρ ⊆ alter f r ρ'.
+  Proof.
+    intros Hr. rewrite !map_subseteq_spec. intros Hincl i x Hi.
+    destruct_decide (decide (i=r)).
+    { subst. rewrite lookup_alter. rewrite Hi in Hr. apply Hincl in Hi.
+      rewrite Hi. simpl. f_equal. done. }
+    { rewrite lookup_alter_ne //. eauto. }
+  Qed.
+
   Lemma pstore_set_spec t σ r v :
     r ∈ dom σ →
     {{{
@@ -1842,7 +1854,9 @@ Section pstore_G.
         (* The model of n is impacted! *)
         { eexists _. split_and !; last done.
           { erewrite lookup_update_all; try done. }
-          { admit. (* THIS IS ELISION *) } }
+          (* THIS IS ELISION *)
+          { apply included_alter; eauto. destruct (ρ !! r) as [(?,?)|] eqn:Hx; try done.
+            f_equal. admit. } }
         (* The model of n is preserved, easy. *)
         { exists ρ'. split_and !; try done. subst M'. rewrite lookup_update_all_ne //. } }
       iPureIntro.
