@@ -2003,10 +2003,7 @@ Section pstore_G.
     r ∈ (change_of_edge <$> ds).*1.
   Proof.
     intros E1 Hp1 Hp2 Hn1 Hn2.
-    induction Hp2 .
-    { congruence. }
-    { destruct_decide (decide (a2 ∈ vertices (list_to_set xs) ∪ {[root]})) as Ha2; last set_solver.
-      clear IHHp2.
+    destruct_decide (decide (n2 = root)).
   Admitted.
 
   Lemma pstore_set_spec t σ r v :
@@ -2111,14 +2108,15 @@ Section pstore_G.
                   destruct Hglobgen as (G1&G2).
                   destruct_decide (decide (n=root)).
                   { clear Hn. subst.
-                    assert (G !! root = Some gen) as HGroot; last first.
-                    { rewrite /gen_succ_rel HGroot decide_True // in G2. lia. }
-                    admit. (* ??? *) }
+                    rewrite /gen_succ_rel in G2.
+                    admit. }
                   { destruct Hn as [Hn|?]; last congruence.
-                    admit.  } } }
+                    apply undo_path with (ys:=ys) in I1; eauto. 2:admit.
+                    rewrite -I4 in I1.
+                    admit. } } }
 
               assert (forall n, n ∈ ve -> at_most_one_child g n).
-              { naive_solver. }
+              { intros n Hn. apply HnotC in Hn. unfold topology_inv in Htopo. naive_solver. }
               eapply deduce_was_modified. 3:done.
               3,4:naive_solver.
               { set_solver. }
