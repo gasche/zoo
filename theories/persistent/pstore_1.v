@@ -1882,25 +1882,71 @@ Section pstore_G.
     { rewrite lookup_alter_ne //. eauto. }
   Qed.
 
+  Lemma rooted_dag_root_has_no_succ g root :
+    rooted_dag g root ->
+    (forall a b, (root,a,b) ∈ g -> False).
+  Proof.
+    intros Hg a b He.
+    assert (b ∈ vertices g) as Hb by (apply elem_of_vertices; eauto).
+    apply Hg in Hb. destruct Hb as (xs&Hp).
+    assert (path g root ((root,a,b)::xs) root) as Hp'.
+    { by apply path_cons. }
+    apply Hg in Hp'. done.
+  Qed.
+
+  Lemma path_must_be_included g root n1 xs n2 ys :
+    rooted_dag g root ->
+    unaliased g ->
+    path g n1 xs root ->
+    path g n1 ys n2 ->
+    n2 ∈ vertices (list_to_set xs) ∪ {[root]} /\ exists zs, xs = ys ++ zs.
+  Proof.
+    intros Hg1 Hg2 Hp1 Hp2. revert ys Hp2.
+    induction Hp1; intros ys Hp2.
+    { inversion Hp2.
+      { rewrite list_to_set_nil vertices_empty. set_solver. }
+      { subst. exfalso. by eapply rooted_dag_root_has_no_succ. } }
+    { inversion Hp2; subst.
+      { rewrite list_to_set_cons vertices_union vertices_singleton. set_solver. }
+      { specialize (Hg2 _ _ _ _ _ H H0). destruct Hg2. subst.
+        apply IHHp1 in H1; eauto.
+        rewrite list_to_set_cons vertices_union vertices_singleton. set_solver. } }
+  Qed.
+
   Lemma path_deduce_somehwere_in ve g lw xs root n1 ds n2 :
+    rooted_dag g root ->
+    unaliased g ->
     ve = vertices (list_to_set xs) ∪ {[root]} ->
     path g lw xs root ->
     path g n1 ds n2 ->
     n1 ∈ ve ->
     n2 ∈ ve /\ (list_to_set ds : gset _) ⊆ (list_to_set xs).
   Proof.
-    intros -> Hp1 Hp2.
+    intros Hg1 Hg2 -> Hp1 Hp2.
     rewrite !elem_of_union !elem_of_singleton.
     intros [E | E].
     { apply elem_of_vertices in E. destruct E as (?&?&E).
       destruct E as [E|E].
-      { admit. }
-      { admit. } }
+      { apply elem_of_list_to_set, elem_of_middle in E.
+        destruct E as (l1&l2&->).
+        apply path_app_inv in Hp1. destruct Hp1 as (a&?&Ha).
+        assert (a=n1) by (by inversion Ha). subst a.
+        eapply path_must_be_included in Hp2; eauto.
+        destruct Hp2 as (?&?&Eq). rewrite Eq in H0. rewrite Eq. rewrite !list_to_set_app_L !vertices_union.
+        rewrite list_to_set_app_L vertices_union in H0. set_solver. }
+      { apply elem_of_list_to_set, elem_of_middle in E.
+        destruct E as (l1&l2&->).
+        apply path_app_inv in Hp1. destruct Hp1 as (a&?&Ha).
+        inversion Ha; subst.
+        eapply path_must_be_included in Hp2; eauto.
+        destruct Hp2 as (?&?&Eq). rewrite Eq in H0. rewrite Eq.
+        rewrite list_to_set_app_L list_to_set_cons !list_to_set_app_L !vertices_union.
+        rewrite list_to_set_app_L vertices_union in H0. set_solver. } }
     { subst n1.
       assert (ds = [] /\ n2 = root) as (->&->).
-      { admit. } (* root has no succ *)
+      { inversion Hp2; first done. subst. exfalso. eapply rooted_dag_root_has_no_succ; eauto. }
       set_solver. }
-  Admitted.
+    Qed.
 
 
   Lemma pstore_set_spec t σ r v :
@@ -1923,6 +1969,8 @@ Section pstore_G.
     { eapply use_r_in_σ; eauto. }
     destruct (use_r_in_dom ρv ρg r old) as (refgen & Hrefgen); eauto.
     { destruct Hcoh. set_solver. }
+
+    iDestruct (extract_unaliased with "[$]") as "%Hun".
 
     iDestruct (big_sepM_insert_acc with "Hρv") as "(Hv & Hρv)"; first done.
     iDestruct (big_sepM_insert_acc with "Hρg") as "(Hrgen & Hρg)" ; first done.
@@ -1982,7 +2030,7 @@ Section pstore_G.
             destruct Hn1 as (?&Hn1&?). destruct Hn2 as (?&Hn2&?). subst.
             specialize (X5 _ _ _ _ _ Hn12 Hn1 Hn2). rewrite X5.
             rewrite apply_diffl_alter_commut_ne //.
-              admit. (* Should be ok *) } }
+            admit. (* Should be ok *) }
           { rewrite lookup_update_all_ne // in Hn1.
             destruct_decide (decide (n2 ∈ ve)).
             { apply lookup_update_all_Some in Hn2; last done.
