@@ -1180,14 +1180,17 @@ Section pstore_G.
     unfold captured. set_solver.
   Qed.
 
-  Definition no_succ g k :=
+  Definition no_parent g k :=
     forall k', not (has_edge g k k').
+
+  Definition no_child g k :=
+    forall k', not (has_edge g k' k).
 
   Definition at_most_one_child g k :=
     forall k1 k2, has_edge g k1 k -> has_edge g k2 k -> k1 = k2.
 
-  Lemma rooted_dag_no_succ g root :
-    rooted_dag g root -> no_succ g root.
+  Lemma rooted_dag_no_parent g root :
+    rooted_dag g root -> no_parent g root.
   Proof.
     intros Hdag k (diff & Hedge).
     destruct Hdag as [Hreach Hacy].
@@ -1198,14 +1201,20 @@ Section pstore_G.
     inversion Hacy.
   Qed.
 
-  Definition topology_inv g M C root :=
-    (* If a node is not captured, then it has at most one child. *)
-    forall k, k ∈ dom M -> not (captured C k) -> at_most_one_child g k.
+  Definition topology_inv g M C orig :=
+    (* If a node is not captured, then:
+       - if it is the historic root (origin), it has no children
+       - otherwise it has at most one child *)
+    forall k, k ∈ dom M -> not (captured C k) ->
+      ((k = orig) -> no_child g k)
+      /\
+      (at_most_one_child g k)
+    .
 
-  Lemma topology_domM_transport : forall g M M' C root,
-    dom M = dom M' -> topology_inv g M C root -> topology_inv g M' C root.
+  Lemma topology_domM_transport : forall g M M' C orig,
+    dom M = dom M' -> topology_inv g M C orig -> topology_inv g M' C orig.
   Proof.
-    intros g M M' C root H Htop.
+    intros g M M' C orig H Htop.
     intros k Hk.
     rewrite <- H in Hk.
     exact (Htop k Hk).
@@ -1430,7 +1439,7 @@ Section pstore_G.
       ,
     ⌜t=#t0 /\
      store_inv M G g root σ ρv ρg /\
-     topology_inv g M C root /\
+     topology_inv g M C orig /\
      history_inv g G ρg root h orig /\
      coherent M ρv ρg g /\
      rooted_dag g root /\
@@ -1522,8 +1531,13 @@ Section pstore_G.
         rewrite !lookup_singleton_Some.
         inversion Hroot; set_solver. } }
     { (* topology_inv *)
-      intros k Hk CAPk.
-      rewrite /at_most_one_child /has_edge. set_solver. }
+      constructor.
+    - intro Hroot; subst k. intros l' (diff & Hedge).
+      set_solver.
+    - assert (k = root) by set_solver; subst.
+      intros k1 k2 H1 H2.
+      destruct H1; set_solver.
+    }
     { (* history_inv *)
       exists []. exists []. unfold undo_graph.
       split_and!; eauto using lwt_inv_init; constructor.
@@ -2054,7 +2068,10 @@ Section pstore_G.
           exists (<[r:=(v,gen)]>ρ). split_and !.
           { erewrite lookup_update_all; eauto.
             { f_equal. erewrite overspecialized_lookup_alter; first done.  eauto using lookup_ρ. }
-            { apply path_unsnoc_case in I1. destruct I1 as [(->&->)|(?&?&?&->&?&?)]; set_solver. } }
+            { apply path_unsnoc_case in I1. destruct I1 as [(->&->)|(?&?&?&->&?&?)].
+              { set_solver. }
+              { set_solver. }
+            } }
           { rewrite fmap_insert E2 //. }
           { rewrite fmap_insert E3 //. } }
         { intros n1 ds n2 x1 x2 Hn12 Hn1 Hn2.
@@ -2185,7 +2202,23 @@ Section pstore_G.
           apply path_cycle_end_inv_aux in Hreach; eauto. } }
     - (* topology_inv *)
       intros k Hk_dom CAPk.
-      { (* at_most_one_child *)
+      { constructor.
+      - (* no_child *)
+        intros Hk; subst k.
+        intros k' (diff & Hk').
+        rewrite elem_of_union in Hk'.
+        rewrite elem_of_singleton in Hk'.
+        { destruct Hk' as [ Hk' | Hk' ].
+        - injection Hk'; intros; subst k' diff. auto.
+        - assert (orig ∈ dom M) as HorigM. {
+            rewrite X2.
+            apply elem_of_dom. eexists; eauto.
+          }
+          destruct (Htopo orig) as [H1 _]; eauto.
+          apply (H1 ltac:(auto) k').
+          eexists; eauto.
+        }
+      - (* at_most_one_child *)
         intros k1 k2 (d1 & Hk1) (d2 & Hk2).
         rewrite -> elem_of_union in Hk1.
         rewrite -> elem_of_union in Hk2.
@@ -2462,14 +2495,14 @@ Section pstore_G.
              captured already in C. *)
           assert (root ∈ dom M) as Hr.
           { by apply elem_of_dom. }
-          eapply Htopo in HC; try done.
+          eapply Htopo in HC; try done. destruct HC as (HC1&HC2).
           destruct Hist as (xs&ys&Hpath&Hmir&HX&Hh). subst h.
           rewrite /has_edge /undo_graph in Hkl. destruct Hkl as (c&Hc).
           rewrite elem_of_union elem_of_difference in Hc.
           destruct Hc as [Hc|(Hc1&Hc2)].
           { (* - if k is on the path from root to orig, then we have the
                converse relation (root, k) ∈ g; but the root has no
-               parent unless it is itself captured (no_succ). *)
+               parent unless it is itself captured (no_parent). *)
             apply elem_of_list_to_set in Hc.
             eapply mirror_mirrored_edges in Hc.
             2:by apply mirror_symm. destruct Hc as (?&?).
@@ -2477,7 +2510,7 @@ Section pstore_G.
               exists x.
               eapply path_all_in; eauto; set_solver.
             }
-            exact (rooted_dag_no_succ g root Hgraph k Hedge).
+            exact (rooted_dag_no_parent g root Hgraph k Hedge).
           }
           { (* if k is *not* on path from root to orig, then *some
                other node* k' is, and we have (k, root) ∈ g and also
@@ -2487,13 +2520,13 @@ Section pstore_G.
             { apply last_Some in Hlast. destruct Hlast as (?&->).
               apply path_snoc_inv in Hpath. destruct Hpath as (?&?&Hc3). subst n0.
               assert (n=k).
-              { eapply HC; by eexists. }
+              { eapply HC2; by eexists. }
               subst n.
-              unfold at_most_one_child in HC.
+              unfold at_most_one_child in HC2.
               specialize (Hun _ _ _ _ _ Hc1 Hc3). set_solver. }
             { apply last_None in Hlast. subst. inversion Hpath. subst.
-              (* orig = root, but I don't know how to conclude. *)
-              admit. (* Gabriel? *) } } }
+              apply HC1 with k; eauto.
+              eexists; eauto. } } }
         rewrite decide_True; eauto.
         rewrite decide_True in HgenC; eauto.
       - assert (captured C l <-> captured C' l) as CAPequiv by (unfold captured; set_solver).
@@ -2503,7 +2536,7 @@ Section pstore_G.
         }
       }
     }
-  Admitted.
+  Qed.
 
   Definition fsts (ds:list ref_diff_edge) : list val :=
     (fun '(l,_,_) => ValLoc l) <$> ds.
@@ -2966,7 +2999,7 @@ Section pstore_G.
   Qed.
 
   Lemma path_cannot_escape (x: ref_diff_edge) (xs ys:list ref_diff_edge) (g1: graph_store) a a' root :
-    no_succ (g1 ∪ list_to_set ys) root ->
+    no_parent (g1 ∪ list_to_set ys) root ->
     unaliased (g1 ∪ list_to_set ys) ->
     x ∈ (list_to_set ys : gset _) ->
     pathlike ys root ->
@@ -2989,7 +3022,7 @@ Section pstore_G.
   Qed.
 
   Lemma path_in_seg_complete (root a a':node_loc) (x:ref_diff_edge) (xs0 xs1 ys: list ref_diff_edge) (g1:graph_store) :
-    no_succ (g1 ∪ list_to_set ys) root ->
+    no_parent (g1 ∪ list_to_set ys) root ->
     unaliased (g1 ∪ list_to_set ys) ->
     pathlike ys root ->
     path (g1 ∪ list_to_set ys) a xs0 a' ->
@@ -3011,7 +3044,7 @@ Section pstore_G.
   Qed.
 
   Lemma undo_preserves_rooted_dag (g:graph_store) xs ys snaproot root :
-    no_succ (undo_graph g xs ys) snaproot ->
+    no_parent (undo_graph g xs ys) snaproot ->
     unaliased g ->
     unaliased (list_to_set ys ∪ g ∖ list_to_set xs) ->
     path g snaproot xs root ->
@@ -3100,7 +3133,7 @@ Section pstore_G.
 
   Lemma construct_middlepoint g a1 xs ys a2 a2' :
     unaliased g ->
-    no_succ g a2 ->
+    no_parent g a2 ->
     path g a1 xs a2 ->
     path g a1 ys a2' ->
     exists zs, xs = ys ++ zs.
@@ -3118,7 +3151,7 @@ Section pstore_G.
   Lemma undo_preserves_model g (M:map_model) (xs ys:list ref_diff_edge) snaproot ρ root :
     dom M = vertices g ∪ {[root]} ->
     correct_path_diff M g ->
-    no_succ (undo_graph g xs ys) snaproot ->
+    no_parent (undo_graph g xs ys) snaproot ->
     unaliased (undo_graph g xs ys) ->
     path g snaproot xs root ->
     undo xs ys ρ ->
@@ -3295,9 +3328,9 @@ Section pstore_G.
     }
   Qed.
 
-  Lemma into_a_path_captured g C M snaproot xs root :
+  Lemma into_a_path_captured g C M orig snaproot xs root :
     dom M = vertices g ∪ {[root]} ->
-    topology_inv g M C root ->
+    topology_inv g M C orig ->
     unaliased g ->
     captured C snaproot ->
     path g snaproot xs root ->
@@ -3316,7 +3349,7 @@ Section pstore_G.
         left.
         apply right_vertex with k1 d1.
         set_solver. }
-      pose proof (Htopo k ltac:(done) ltac:(done)) as H_at_most_one.
+      destruct (Htopo k) as (_ & H_at_most_one); eauto.
       contradiction Hneq.
       { apply H_at_most_one.
         - exists d1. set_solver.
@@ -3327,18 +3360,23 @@ Section pstore_G.
     }
   Qed.
 
-  Lemma undo_preserves_topo g M C (xs ys:list ref_diff_edge) root snaproot :
+  Lemma undo_preserves_topo g M C (xs ys:list ref_diff_edge) orig root snaproot :
     dom M = vertices g ∪ {[root]} ->
     unaliased g ->
     captured C snaproot ->
     path g snaproot xs root ->
     mirror xs ys ->
-    topology_inv g M C root ->
-    topology_inv (undo_graph g xs ys) M C snaproot.
+    topology_inv g M C orig ->
+    topology_inv (undo_graph g xs ys) M C orig.
   Proof.
     intros Hdom Hunaliased CAPsnaproot Hpath Hmirror Htopo.
     intros k Hk_dom CAPk.
-    { intros k1 k2 Hk1 Hk2.
+    { constructor.
+    - intro; subst k.
+      destruct (Htopo orig) as [H1 H2]; eauto.
+      specialize (H1 ltac:(auto)).
+      admit.
+    - intros k1 k2 Hk1 Hk2.
       { destruct (undo_graph_edges g snaproot xs root ys Hpath Hmirror _ _ Hk1) as [ (d1, Hk1') | (d1, Hk1') ];
           destruct (undo_graph_edges g snaproot xs root ys Hpath Hmirror _ _ Hk2) as [ (d2, Hk2') | (d2, Hk2') ];
             clear Hk1 Hk2.
@@ -3346,15 +3384,15 @@ Section pstore_G.
         - exists d1. set_solver.
         - exists d2. set_solver.
         }
-      - { destruct into_a_path_captured with g C M snaproot xs root k1 d1 k d2 k2; eauto. }
-      - { destruct into_a_path_captured with g C M snaproot xs root k2 d2 k d1 k1; eauto. }
+      - { destruct into_a_path_captured with g C M orig snaproot xs root k1 d1 k d2 k2; eauto. }
+      - { destruct into_a_path_captured with g C M orig snaproot xs root k2 d2 k d1 k1; eauto. }
       - { eapply Hunaliased; eauto.
           - apply (path_all_in g snaproot xs root Hpath); eauto.
           - apply (path_all_in g snaproot xs root Hpath); eauto.
         }
       }
     }
-  Qed.
+  Admitted.
 
   Lemma undo_preserves_outside_path g root xs snaproot ys j zs k :
     path g snaproot xs root ->
@@ -3842,7 +3880,7 @@ Section pstore_G.
     }
 
     { (* topology_inv *)
-      subst; apply undo_preserves_topo with root; eauto.
+      subst; apply undo_preserves_topo with root snaproot; eauto.
       - destruct Hinv. eauto.
       - unfold captured; eexists _, _; eapply _.
     }
@@ -3883,7 +3921,7 @@ Section pstore_G.
     Unshelve.
     3:{ done. }
   Qed.
-End pstore_.
+End pstore_G.
 
 #[global] Opaque pstore_create.
 #[global] Opaque pstore_ref.
