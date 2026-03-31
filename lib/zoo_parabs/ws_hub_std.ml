@@ -18,6 +18,10 @@ let create sz =
   ; killed= false
   }
 
+let pop_count = Atomic.make 0
+let steal_count = Atomic.make 0
+let sleep_count = Atomic.make 0
+
 let size t =
   Array.size t.rounds
 
@@ -73,6 +77,7 @@ let rec steal_aux t i max_round_noyield max_round_yield ~finished ~prepare_sleep
   | Anything ->
       None
   | Nothing ->
+      Atomic.incr sleep_count;
       let sleeper = t.sleepers.(i) in
       Sleeper.prepare_sleep sleeper;
       Dormitory.push t.dormitory sleeper;
@@ -121,13 +126,24 @@ let pop_steal_until t i max_round_noyield max_round_yield ~finished ~prepare_sle
   else
     match pop t i with
     | Some _ as res ->
+        Atomic.incr pop_count;
         res
     | None ->
+        Atomic.incr steal_count;
         steal_until t i max_round_noyield max_round_yield ~finished ~prepare_sleep
 
 let pop_steal t i max_round_noyield max_round_yield =
   match pop t i with
   | Some _ as res ->
+      Atomic.incr pop_count;
       res
   | None ->
+      Atomic.incr steal_count;
       steal t i max_round_noyield max_round_yield
+
+let () = at_exit (fun () ->
+  Printf.eprintf "pop: %g; steal: %g; sleep: %g\n%!"
+    (float (Atomic.get pop_count))
+    (float (Atomic.get steal_count))
+    (float (Atomic.get sleep_count))
+)
