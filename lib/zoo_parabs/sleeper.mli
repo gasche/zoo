@@ -1,18 +1,21 @@
 type t
+type prepared
 
 val create :
-  int -> t
+  unit -> t
 
-(* [true] if wakeup is succesful, [false] if already awake. *)
+val prepare :
+  t -> prepared
+
 val wakeup :
-  t -> bool
-
-val prepare_sleep :
-  t -> unit
+  prepared -> bool
 
 type status = Wakeup_received | No_wakeup
-val cancel_sleep :
-  t -> status
+val cancel :
+  prepared -> status
 
-val commit_sleep :
+val commit :
+  prepared -> unit
+
+val remote_wakeup :
   t -> unit

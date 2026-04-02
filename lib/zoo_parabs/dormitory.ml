@@ -1,4 +1,4 @@
-type t = Sleeper.t Mpmc_queue_1.t
+type t = Sleeper.prepared Mpmc_queue_1.t
 
 let create () = Mpmc_queue_1.create ()
 

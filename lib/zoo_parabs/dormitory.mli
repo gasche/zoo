@@ -4,7 +4,7 @@ val create :
   unit -> t
 
 val push :
-  t -> Sleeper.t -> unit
+  t -> Sleeper.prepared -> unit
 
 val wakeup_one :
   t -> unit

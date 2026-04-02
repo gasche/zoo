@@ -1,71 +1,67 @@
+type stop_flag = Mpmc_flag.t
+
 type t =
-  { id : int
-  ; mutex : Mutex.t
+  { mutex : Mutex.t
   ; condition : Condition.t
-  ; mutable sleep_round : int
-  ; mutable last_wakeup : int
+  ; mutable sleep : stop_flag option
   }
-(* [id] is useful to write debugging prints.
+  (* [sleep] is protected by [mutex] *)
 
-   [sleep_round] and [last_wakeup] are protected by the mutex.
-   [last_wakeup] is the round at which the last wakeup occurred:
-   when [sleep_round = last_wakeup], the sleeper has been awoken
-   after the last [prepare_sleep] call. *)
+and prepared = stop_flag * t
 
-let create id =
-  { id
-  ; mutex = Mutex.create ()
+let create () =
+  { mutex = Mutex.create ()
   ; condition = Condition.create ()
-  ; sleep_round = 0
-  ; last_wakeup = 0
+  ; sleep = None
   }
 
-let wakeup t =
-  let wakeup =
-    Mutex.protect t.mutex @@ fun () ->
-    if t.last_wakeup = t.sleep_round then (
-      false
-    ) else (
-      t.last_wakeup <- t.sleep_round;
-      true
-    )
-  in
-  (* We intentionally call Condition.notify after releasing the mutex
-     so that the caller of Condition.wait can take it immediately; see
-     https://en.cppreference.com/w/cpp/thread/condition_variable/notify_one.html
-     https://stackoverflow.com/questions/17101922/do-i-have-to-acquire-lock-before-calling-condition-variable-notify-one/17102100#17102100
-
-     This implies that the notification can race with
-     a mutex-protected critical section in [cancel_sleep] or
-     [commit_sleep] below. This is fine as they check the
-     mutex-protected [last_wakeup] to tell if [wakeup] was called, and
-     do the right thing in that case whether or not the notification
-     is received. *)
-  if wakeup then Condition.notify t.condition;
-  wakeup
-
-let prepare_sleep t =
+let prepare t =
+  let stop = Mpmc_flag.create () in
   Mutex.protect t.mutex @@ fun () ->
-  t.sleep_round <- t.sleep_round + 1
+  t.sleep <- Some stop;
+  (stop, t)
+
+let wakeup (stop, t) =
+  match Mpmc_flag.set stop with
+  | Already_set -> false
+  | First_set ->
+    (*  *)
+    Mutex.protect t.mutex ignore;
+    (* We take the mutex to synchronize with [commit].
+
+       After taking the mutex we know that either [commit] saw that
+       the [stop] flag was already set, or it finished its own
+       critical section so [Condition.wait] has been called.
+
+       Otherwise we would risk losing the notification by calling
+       [Condition.notify] below before [commit] calls
+       [Condition.wait].
+    *)
+    (* We intentionally call Condition.notify without holding the mutex
+       so that the caller of Condition.wait can take it immediately; see
+       https://en.cppreference.com/w/cpp/thread/condition_variable/notify_one.html
+       https://stackoverflow.com/questions/17101922/do-i-have-to-acquire-lock-before-calling-condition-variable-notify-one/17102100#17102100
+     *)
+    Condition.notify t.condition;
+    true
 
 type status = Wakeup_received | No_wakeup
-let cancel_sleep t =
-  Mutex.protect t.mutex @@ fun () ->
-  if t.last_wakeup = t.sleep_round then (
-    (* We received a notification between [prepare] and [cancel]. *)
-    Wakeup_received
-  ) else (
-    (* Update [last_wakeup] so that a future wakeup
-       on this round is not counted as 'useful'. *)
-    t.last_wakeup <- t.sleep_round;
-    No_wakeup
-  )
+let cancel (stop, t) =
+  Mutex.protect t.mutex (fun () -> t.sleep <- None);
+  match Mpmc_flag.set stop with
+  | Already_set -> Wakeup_received
+  | First_set -> No_wakeup
 
-let commit_sleep t =
+let commit (stop, t) =
   Mutex.protect t.mutex @@ fun () ->
-  if t.sleep_round = t.last_wakeup then (
-    (* we received a notification between [prepare] and [commit] *)
-    ()
-  ) else (
+  if not (Mpmc_flag.is_set stop) then (
     Condition.wait t.condition t.mutex;
-  )
+    ignore (Mpmc_flag.set stop);
+  );
+  t.sleep <- None
+
+let remote_wakeup t =
+  let sleep = Mutex.protect t.mutex (fun () -> t.sleep) in
+  match sleep with
+  | None -> ()
+  | Some stop -> ignore (wakeup (stop, t))

@@ -9,7 +9,7 @@ type 'a t =
 let create sz =
   { size= sz
   ; queue= Mpmc_queue_1.create ()
-  ; sleepers= Array.unsafe_initi sz Sleeper.create
+  ; sleepers= Array.unsafe_init sz Sleeper.create
   ; dormitory= Dormitory.create ()
   ; killed= false
   }
@@ -37,11 +37,11 @@ let pop t _i =
 
 let rec steal_aux t i ~finished ~prepare_sleep =
   let sleeper = t.sleepers.(i) in
-  Sleeper.prepare_sleep sleeper;
-  Dormitory.push t.dormitory sleeper;
-  prepare_sleep (fun () -> ignore (Sleeper.wakeup sleeper));
+  prepare_sleep (fun () -> ignore (Sleeper.remote_wakeup sleeper));
+  let sleep = Sleeper.prepare sleeper in
+  Dormitory.push t.dormitory sleep;
   if finished () then (
-    begin match Sleeper.cancel_sleep sleeper with
+    begin match Sleeper.cancel sleep with
       | Wakeup_received -> Dormitory.wakeup_one t.dormitory
       | No_wakeup -> ()
     end;
@@ -51,10 +51,10 @@ let rec steal_aux t i ~finished ~prepare_sleep =
     | Some _ as res ->
         (* We are stealing a task that woke someone up,
            so they will have a spurious wakeup. *)
-        ignore (Sleeper.cancel_sleep sleeper);
+        ignore (Sleeper.cancel sleep);
         res
     | None ->
-        Sleeper.commit_sleep sleeper;
+        Sleeper.commit sleep;
         steal_aux t i ~finished ~prepare_sleep
   )
 
